@@ -9,7 +9,6 @@ interface DoctorDashboardProps {
 export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [activeTab, setActiveTab] = useState<'queue' | 'patients' | 'analytics'>('queue');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPatient, setSelectedPatient] = useState<any>(null);
 
   const queuePatients = [
     {
@@ -211,7 +210,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                     className={`bg-white rounded-2xl border-2 ${
                       patient.status === 'In Progress' ? 'border-blue-500 shadow-lg' : colors.border
                     } p-4 sm:p-6 hover:shadow-lg active:scale-[0.99] transition-all cursor-pointer`}
-                    onClick={() => setSelectedPatient(patient)}
+                    onClick={() => {}}
                   >
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-start gap-4">
