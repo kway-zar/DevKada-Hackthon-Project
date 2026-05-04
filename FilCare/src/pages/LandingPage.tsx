@@ -1,5 +1,6 @@
 import { UserCircle, Stethoscope, Brain, Clock, Heart, Shield } from 'lucide-react';
 import { Header } from "../components/Header";
+import { Link } from "react-router-dom";
 
 function LandingPage() {
     const sizes = {
@@ -58,7 +59,7 @@ function LandingPage() {
                     </div>
 
                     <div className="mt-12 grid grid-cols-1 md:grid-cols-2  gap-2 w-auto mx-auto">
-                        <a href="#patient" className="group md:ml-30 block p-10 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg transform-gpu hover:-translate-y-1 transition">
+                        <Link to="/patient" className="group md:ml-30 block p-10 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg transform-gpu hover:-translate-y-1 transition">
                             <div className="flex flex-col items-center gap-6 text-center">
                                 <div className="bg-white p-4 rounded-lg">
                                     <UserCircle className="w-10 h-10 sm:w-12 sm:h-12 text-blue-600" />
@@ -68,9 +69,9 @@ function LandingPage() {
                                     <p className="text-sm opacity-90 mt-1">Get AI triage & book appointments</p>
                                 </div>
                             </div>
-                        </a>
+                        </Link>
 
-                        <a href="#provider" className="group block md:mr-30 p-10 rounded-2xl bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg transform-gpu hover:-translate-y-1 transition">
+                        <Link to="/provider" className="group block md:mr-30 p-10 rounded-2xl bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg transform-gpu hover:-translate-y-1 transition">
                             <div className="flex flex-col items-center gap-6 text-center">
                                 <div className="bg-white p-4 rounded-lg">
                                     <Stethoscope className="w-10 h-10 sm:w-12 sm:h-12 text-green-600" />
@@ -80,7 +81,7 @@ function LandingPage() {
                                     <p className="text-sm opacity-90 mt-1">Manage queue & patient records</p>
                                 </div>
                             </div>
-                        </a>
+                        </Link>
                     </div>
 
                     <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
