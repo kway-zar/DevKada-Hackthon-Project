@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertCircle, CheckCircle, Clock, Brain } from 'lucide-react';
+import { AlertCircle, CheckCircle, Brain } from 'lucide-react';
 
 interface SymptomCheckerProps {
   onTriageComplete: (data: any) => void;
@@ -65,7 +65,7 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
         symptoms: allSymptoms,
         duration,
         severity,
-        analysis: generateAIAnalysis(priority, allSymptoms),
+        analysis: generateAIAnalysis(priority),
       };
 
       setTriageResult(result);
@@ -73,7 +73,7 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
     }, 2000);
   };
 
-  const generateAIAnalysis = (priority: string, symptoms: string) => {
+  const generateAIAnalysis = (priority: string) => {
     if (priority === 'P1') {
       return 'AI has detected potentially life-threatening symptoms. Based on the keywords identified, immediate medical attention is crucial. Your symptoms suggest a critical condition that requires emergency room care.';
     } else if (priority === 'P2') {

@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { AlertCircle, CheckCircle, Clock, Brain } from 'lucide-react';
+import { AlertCircle, CheckCircle, Brain } from 'lucide-react';
 
 interface SymptomCheckerProps {
   onTriageComplete: (data: any) => void;
 }
 
 export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
-  const [symptoms, setSymptoms] = useState('');
+
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [duration, setDuration] = useState('');
   const [severity, setSeverity] = useState('');
@@ -31,7 +31,7 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
     setAnalyzing(true);
 
     setTimeout(() => {
-      const allSymptoms = [...selectedSymptoms, symptoms].filter(Boolean).join(', ').toLowerCase();
+      const allSymptoms = selectedSymptoms.join(', ').toLowerCase();
 
       let priority = 'P3';
       let priorityLabel = 'Non-Urgent';
@@ -65,7 +65,7 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
         symptoms: allSymptoms,
         duration,
         severity,
-        analysis: generateAIAnalysis(priority, allSymptoms),
+        analysis: generateAIAnalysis(priority),
       };
 
       setTriageResult(result);
@@ -73,7 +73,7 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
     }, 2000);
   };
 
-  const generateAIAnalysis = (priority: string, symptoms: string) => {
+  const generateAIAnalysis = (priority: string) => {
     if (priority === 'P1') {
       return 'AI has detected potentially life-threatening symptoms. Based on the keywords identified, immediate medical attention is crucial. Your symptoms suggest a critical condition that requires emergency room care.';
     } else if (priority === 'P2') {
@@ -217,10 +217,9 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
             Describe Your Symptoms in Detail
           </label>
           <textarea
-            value={symptoms}
-            onChange={(e) => setSymptoms(e.target.value)}
             placeholder="Example: Sharp pain in lower right abdomen, started this morning..."
             className="w-full h-32 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled
           />
         </div>
 
@@ -263,7 +262,7 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
 
         <button
           onClick={analyzeSymptoms}
-          disabled={analyzing || (selectedSymptoms.length === 0 && !symptoms)}
+          disabled={analyzing || selectedSymptoms.length === 0}
           className="w-full py-4 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 active:scale-98 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg disabled:shadow-none"
         >
           {analyzing ? (

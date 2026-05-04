@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowLeft, FileText, MapPin, QrCode, Clock, Activity } from 'lucide-react';
-import { FilCareLogo } from './FilCareLogo';
+import { FilCareLogo } from '../components/FilCareLogo';
 import { SymptomChecker } from './SymptomChecker';
 import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
@@ -82,7 +82,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'facilities' && (
           <FacilityFinder
             triageData={triageData}
-            onFacilitySelect={(facility) => {
+            onFacilitySelect={() => {
               setActiveView('queue');
             }}
           />
@@ -168,7 +168,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'facilities' && (
           <FacilityFinder
             triageData={triageData}
-            onFacilitySelect={(facility) => {
+            onFacilitySelect={() => {
               setActiveView('queue');
             }}
           />
