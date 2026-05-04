@@ -1,4 +1,3 @@
-import React from "react";
 import { UserCircle, Stethoscope, Brain, Clock, Heart, Shield } from 'lucide-react';
 import { Header } from "../components/Header";
 

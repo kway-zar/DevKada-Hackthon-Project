@@ -1,7 +1,6 @@
 
 
 // lucide-react may not be installed in this environment; provide lightweight local SVG components
-import React from 'react';
 
 const Activity = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

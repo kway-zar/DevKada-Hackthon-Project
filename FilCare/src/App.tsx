@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import './App.css'
 import LandingPage from './pages/LandingPage.tsx'
 import { HashRouter, Route, Routes } from 'react-router-dom'
