@@ -6,7 +6,6 @@ import { DoctorDashboard } from './components/DoctorDashboard.tsx'
 import { GabayChatbot } from './components/GabayChatbot.tsx'
 
 function App() {
- 
 
   return (
     <>
@@ -14,7 +13,7 @@ function App() {
         <main>
           <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/patient" element={<PatientPortal patientData={undefined} setPatientData={function (data: any): void {
+            <Route path="/patient" element={<PatientPortal patientData={undefined} setPatientData={function (): void {
               throw new Error('Function not implemented.')
             } } onBack={function (): void {
               window.location.href = '/';

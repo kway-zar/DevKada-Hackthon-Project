@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, Users, CheckCircle, AlertCircle, TrendingUp } from 'lucide-react';
+import { Clock, CheckCircle, AlertCircle, TrendingUp } from 'lucide-react';
 
 interface PatientQueueProps {
   patientData: any;
@@ -7,7 +7,7 @@ interface PatientQueueProps {
 }
 
 export function PatientQueue({ patientData, triageData }: PatientQueueProps) {
-  const [queuePosition, setQueuePosition] = useState(42);
+  const [queuePosition] = useState(42);
   const [nowServing, setNowServing] = useState(39);
   const [estimatedWait, setEstimatedWait] = useState(12);
 

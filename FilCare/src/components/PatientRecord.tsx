@@ -16,13 +16,7 @@ export function PatientRecord({ patientData }: PatientRecordProps) {
     );
   }
 
-  const qrData = JSON.stringify({
-    id: patientData.id,
-    name: patientData.name,
-    dob: patientData.dateOfBirth,
-    bloodType: patientData.bloodType,
-    timestamp: Date.now(),
-  });
+
 
   return (
     <div className="p-4 sm:p-8 max-w-4xl mx-auto">
