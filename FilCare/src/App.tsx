@@ -1,5 +1,6 @@
 import './App.css'
 import LandingPage from './pages/LandingPage.tsx'
+//import PatientProfile from './pages/PatientProfile.tsx'
 import { HashRouter, Route, Routes } from 'react-router-dom'
 import { PatientPortal } from './components/PatientPortal.tsx'
 import { DoctorDashboard } from './components/DoctorDashboard.tsx'
@@ -18,6 +19,7 @@ function App() {
             } } onBack={function (): void {
               window.location.href = '/';
             } }/> }/>
+            {/* <Route path="/patient-profile" element={<PatientProfile />} /> */}
             <Route path="/provider" element={<DoctorDashboard onBack={function (): void {
               window.location.href = '/';
             } } />} />
