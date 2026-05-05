@@ -6,6 +6,7 @@ import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
 import { PatientRecord } from './PatientRecord';
+import PatientProfile from './PatientProfile';
 
 interface PatientPortalProps {
   patientData: any;
@@ -90,7 +91,8 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'queue' && (
           <PatientQueue patientData={patientData} triageData={triageData} />
         )}
-        {activeView === 'record' && <PatientRecord patientData={patientData} />}
+        {/* {activeView === 'record' && <PatientRecord patientData={patientData} />} */}
+        {activeView === 'record' && <PatientProfile />}
       </div>
 
       {/* Bottom Navigation - Mobile */}
@@ -176,7 +178,8 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'queue' && (
           <PatientQueue patientData={patientData} triageData={triageData} />
         )}
-        {activeView === 'record' && <PatientRecord patientData={patientData} />}
+        {/* {activeView === 'record' && <PatientRecord patientData={patientData} />} */}
+        {activeView === 'record' && <PatientProfile />}
       </div>
     </div>
   );
