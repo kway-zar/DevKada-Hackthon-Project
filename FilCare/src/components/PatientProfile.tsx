@@ -1,4 +1,4 @@
-import React from 'react'
+
 import { QRCodeSVG} from 'qrcode.react';
 import { UserCircle, Shield, Download, Upload } from 'lucide-react';
 
