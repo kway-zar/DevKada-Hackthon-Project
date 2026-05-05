@@ -5,7 +5,7 @@ import { SymptomChecker } from './SymptomChecker';
 import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
-import { PatientRecord } from './PatientRecord';
+
 import PatientProfile from './PatientProfile';
 
 interface PatientPortalProps {
