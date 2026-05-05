@@ -3,6 +3,7 @@ import LandingPage from './pages/LandingPage.tsx'
 import { HashRouter, Route, Routes } from 'react-router-dom'
 import { PatientPortal } from './components/PatientPortal.tsx'
 import { DoctorDashboard } from './components/DoctorDashboard.tsx'
+import { GabayChatbot } from './components/GabayChatbot.tsx'
 
 function App() {
 
@@ -24,6 +25,7 @@ function App() {
         </main>
 
       </HashRouter>
+      <GabayChatbot />
     </>
   )
 }
