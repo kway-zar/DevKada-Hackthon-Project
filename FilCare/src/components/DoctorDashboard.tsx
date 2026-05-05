@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { ArrowLeft, Users, Clock, AlertTriangle, CheckCircle, Search, QrCode } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Users, Clock, AlertTriangle, CheckCircle, Search, QrCode, Upload, Camera } from 'lucide-react';
+import jsQR from 'jsqr';
 import { FilCareLogo } from './FilCareLogo';
 
 interface DoctorDashboardProps {
@@ -9,6 +10,15 @@ interface DoctorDashboardProps {
 export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [activeTab, setActiveTab] = useState<'queue' | 'patients' | 'analytics'>('queue');
   const [searchQuery, setSearchQuery] = useState('');
+  const [, setSelectedPatient] = useState<any>(null);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerStatus, setScannerStatus] = useState('Waiting to start scanner.');
+  const [scannerError, setScannerError] = useState('');
+  const [scannedPayload, setScannedPayload] = useState<any>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scannerIntervalRef = useRef<number | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   const queuePatients = [
     {
@@ -107,6 +117,132 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     return priorityOrder[a.priority as keyof typeof priorityOrder] - priorityOrder[b.priority as keyof typeof priorityOrder];
   });
 
+  const stopScanner = () => {
+    if (scannerIntervalRef.current !== null) {
+      window.clearInterval(scannerIntervalRef.current);
+      scannerIntervalRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  };
+
+  const parseScannedData = (rawValue: string) => {
+    try {
+      const payload = JSON.parse(rawValue);
+      setScannedPayload(payload);
+      setScannerStatus('QR code scanned successfully.');
+      setScannerError('');
+      setIsScannerOpen(false);
+      stopScanner();
+    } catch (_error) {
+      setScannerError('Invalid QR payload format. Expected patient data JSON.');
+    }
+  };
+
+  const scanImageSource = async (source: CanvasImageSource, width: number, height: number) => {
+    if (!canvasRef.current || width <= 0 || height <= 0) {
+      return false;
+    }
+
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) {
+      return false;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(source, 0, 0, width, height);
+
+    const DetectorCtor = (window as any).BarcodeDetector as
+      | (new (options?: { formats?: string[] }) => { detect: (image: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>> })
+      | undefined;
+    if (DetectorCtor) {
+      const detector = new DetectorCtor({ formats: ['qr_code'] });
+      const results = await detector.detect(canvas);
+      const rawValue = results[0]?.rawValue;
+      if (rawValue) {
+        parseScannedData(rawValue);
+        return true;
+      }
+    }
+
+    const imageData = context.getImageData(0, 0, width, height);
+    const jsqrResult = jsQR(imageData.data, imageData.width, imageData.height);
+    if (jsqrResult?.data) {
+      parseScannedData(jsqrResult.data);
+      return true;
+    }
+
+    return false;
+  };
+
+  const startCameraScanner = async () => {
+    setScannerError('');
+    setScannerStatus('Requesting camera access...');
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      mediaStreamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      setScannerStatus('Point the camera at the patient QR code.');
+
+      scannerIntervalRef.current = window.setInterval(async () => {
+        if (!videoRef.current) return;
+        try {
+          const width = videoRef.current.videoWidth;
+          const height = videoRef.current.videoHeight;
+          await scanImageSource(videoRef.current, width, height);
+        } catch (_error) {
+          // Continue polling until a readable QR is found.
+        }
+      }, 700);
+    } catch (_error) {
+      setScannerStatus('Camera unavailable.');
+      setScannerError('Could not access the camera. Allow permission or upload a QR photo.');
+    }
+  };
+
+  const handleUploadScan = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      setScannerStatus('Scanning uploaded image...');
+      setScannerError('');
+      const imageBitmap = await createImageBitmap(file);
+      const found = await scanImageSource(imageBitmap, imageBitmap.width, imageBitmap.height);
+      imageBitmap.close();
+      if (!found) {
+        setScannerError('No QR code found. Try again with a clearer image.');
+      }
+    } catch (_error) {
+      setScannerError('Could not process the uploaded image.');
+    }
+  };
+
+  useEffect(() => {
+    if (isScannerOpen) {
+      startCameraScanner();
+    } else {
+      stopScanner();
+    }
+
+    return () => {
+      stopScanner();
+    };
+  }, [isScannerOpen]);
+
   return (
     <div className="size-full flex flex-col bg-gray-50">
       {/* Header */}
@@ -193,7 +329,10 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                <button
+                  onClick={() => setIsScannerOpen(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                >
                   <QrCode className="w-4 h-4" />
                   Scan QR
                 </button>
@@ -278,9 +417,21 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
             <p className="text-gray-600 mb-6">
               Use the QR scanner to quickly access patient medical records and history
             </p>
-            <button className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold">
+            <button
+              onClick={() => setIsScannerOpen(true)}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+            >
               Open QR Scanner
             </button>
+            {scannedPayload && (
+              <div className="mt-6 text-left bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-2xl mx-auto">
+                <h4 className="font-semibold text-blue-900 mb-2">Scanned Patient</h4>
+                <p className="text-sm text-blue-900"><span className="font-medium">ID:</span> {scannedPayload.id || 'N/A'}</p>
+                <p className="text-sm text-blue-900"><span className="font-medium">Name:</span> {scannedPayload.name || 'N/A'}</p>
+                <p className="text-sm text-blue-900"><span className="font-medium">Date of Birth:</span> {scannedPayload.dob || 'N/A'}</p>
+                <p className="text-sm text-blue-900"><span className="font-medium">Blood Type:</span> {scannedPayload.bloodType || 'N/A'}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -341,6 +492,50 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
           </div>
         )}
       </div>
+
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-gray-900">QR Scanner</h3>
+              <button
+                onClick={() => setIsScannerOpen(false)}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="border border-gray-200 rounded-xl bg-black overflow-hidden">
+              <video ref={videoRef} className="w-full h-64 object-cover" playsInline muted />
+            </div>
+            <canvas ref={canvasRef} className="hidden" />
+
+            <p className="mt-3 text-sm text-gray-700">{scannerStatus}</p>
+            {scannerError && <p className="mt-2 text-sm text-red-600">{scannerError}</p>}
+
+            <div className="mt-4 flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={startCameraScanner}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+              >
+                <Camera className="w-4 h-4" />
+                Retry Camera
+              </button>
+              <label className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer flex items-center justify-center gap-2">
+                <Upload className="w-4 h-4" />
+                Upload QR Image
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleUploadScan}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
