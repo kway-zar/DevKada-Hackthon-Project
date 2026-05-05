@@ -3,6 +3,7 @@ import { motion, type Variants } from 'framer-motion';
 import { Header } from "../components/Header";
 import { Link } from "react-router-dom";
 
+
 function LandingPage() {
     const sizes = {
         sm: {
@@ -54,6 +55,7 @@ function LandingPage() {
             <Header />
 
             <main className="Main_Body relative w-full min-h-screen text-black dark:text-black overflow-y-auto bg-gray-50">
+                
                 <motion.section
                     className="max-w-6xl mx-auto px-6 py-16"
                     initial={{ opacity: 0, y: 24 }}
