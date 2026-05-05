@@ -12,7 +12,7 @@ It demonstrates modern web development techniques using:
 - **TypeScript** for static typing
 - **Vite** for a fast, modern build setup
 
-_(Replace this section later with a detailed description of your project, features, screenshots, and purpose.)_
+-----------------------
 
 ## 🛠️ Tech Stack
 
