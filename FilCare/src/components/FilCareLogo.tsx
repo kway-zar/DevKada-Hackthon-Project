@@ -50,7 +50,7 @@ export function FilCareLogo({ size = 'md', showText = true }: FilCareLogoProps) 
           </div>
           {size !== 'sm' && (
             <p className={`${currentSize.subtext} text-gray-500 hidden sm:block`}>
-              Smart Healthcare Service
+              Smart Healthcare
             </p>
           )}
         </div>
