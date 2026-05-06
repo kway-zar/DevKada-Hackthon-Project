@@ -2,11 +2,11 @@ import './App.css'
 import LandingPage from './pages/LandingPage.tsx'
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { PatientPortal } from './components/PatientPortal.tsx'
-import { DoctorDashboard } from './components/DoctorDashboard.tsx'
 import { GabayChatbot } from './components/GabayChatbot.tsx'
 import { AuthModal } from './components/AuthModal.tsx'
 import { clearAuthSession, isAuthSessionExpired, loadAuthSession, saveAuthSession, type AuthRole, type AuthSession } from './lib/supabaseAuth.ts'
 import { useEffect, useState, type ReactNode } from 'react'
+import { DoctorDashboard } from './components/DoctorDashboard.tsx'
 
 function AuthenticatedRoute({
   session,
@@ -62,12 +62,12 @@ function AppShell() {
     setAuthModalOpen(true)
   }
 
-  const handleAuthSuccess = (nextSession: AuthSession) => {
-    saveAuthSession(nextSession)
-    setSession(nextSession)
-    setAuthModalOpen(false)
-    navigate(redirectTo)
-  }
+  const handleAuthSuccess = (session: AuthSession) => {
+  saveAuthSession(session);
+  setSession(session);
+  setAuthModalOpen(false);
+  navigate(redirectTo);
+};
 
   const landingPage = (
     <LandingPage
