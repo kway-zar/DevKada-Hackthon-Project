@@ -10,37 +10,9 @@ export interface AuthSession {
   fullName: string
 }
 
-interface SupabaseAuthUserMetadata {
-  full_name?: string
-  role?: AuthRole
-}
 
-interface SupabaseAuthUser {
-  id: string
-  email?: string
-  user_metadata?: SupabaseAuthUserMetadata
-}
-
-interface SupabaseAuthResponse {
-  access_token?: string
-  refresh_token?: string
-  expires_in?: number
-  user?: SupabaseAuthUser
-  error?: string
-  error_description?: string
-  error_code?: string
-  msg?: string
-  code?: number
-}
-
-interface SupabaseProfileRow {
-  role?: AuthRole
-  full_name?: string
-  email?: string
-}
 
 const DEFAULT_REST_API = 'https://mhahfguiqnaczorujmhd.supabase.co/rest/v1/'
-const SIGNUP_COOLDOWN_PREFIX = 'filcare-signup-cooldown:'
 
 function getRestApiBase() {
   return (
@@ -49,9 +21,7 @@ function getRestApiBase() {
   ).replace(/\/$/, '')
 }
 
-function getAuthApiBase() {
-  return getRestApiBase().replace(/\/rest\/v1$/, '/auth/v1')
-}
+
 
 function getAnonKey() {
   return (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || ''
@@ -73,29 +43,6 @@ function getAuthHeaders(accessToken?: string) {
   return headers
 }
 
-function parseAuthError(response: SupabaseAuthResponse, fallback: string) {
-  return response.error_description || response.error || fallback
-}
-
-function getRemainingSignupCooldownSeconds(email: string): number {
-  const key = `${SIGNUP_COOLDOWN_PREFIX}${email.toLowerCase()}`
-  const expiresAtRaw = window.localStorage.getItem(key)
-  if (!expiresAtRaw) return 0
-
-  const expiresAt = Number(expiresAtRaw)
-  if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) {
-    window.localStorage.removeItem(key)
-    return 0
-  }
-
-  return Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000))
-}
-
-function setSignupCooldownSeconds(email: string, seconds: number) {
-  const safeSeconds = Math.max(1, seconds)
-  const key = `${SIGNUP_COOLDOWN_PREFIX}${email.toLowerCase()}`
-  window.localStorage.setItem(key, String(Date.now() + safeSeconds * 1000))
-}
 
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text()

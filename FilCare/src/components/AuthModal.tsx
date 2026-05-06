@@ -13,7 +13,7 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps) {
-  const [userType, setUserType] = useState<'patient' | 'provider'>('patient');
+  const [userType] = useState<'patient' | 'provider'>('patient');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
