@@ -5,8 +5,7 @@ import { SymptomChecker } from './SymptomChecker';
 import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
-
-import PatientProfile from './PatientProfile';
+import { PatientRecord } from './PatientRecord';
 
 interface PatientPortalProps {
   patientData: any;
@@ -91,8 +90,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'queue' && (
           <PatientQueue patientData={patientData} triageData={triageData} />
         )}
-        {/* {activeView === 'record' && <PatientRecord patientData={patientData} />} */}
-        {activeView === 'record' && <PatientProfile />}
+        {activeView === 'record' && <PatientRecord patientData={patientData} />}
       </div>
 
       {/* Bottom Navigation - Mobile */}
@@ -178,8 +176,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'queue' && (
           <PatientQueue patientData={patientData} triageData={triageData} />
         )}
-        {/* {activeView === 'record' && <PatientRecord patientData={patientData} />} */}
-        {activeView === 'record' && <PatientProfile />}
+        {activeView === 'record' && <PatientRecord patientData={patientData} />}
       </div>
     </div>
   );

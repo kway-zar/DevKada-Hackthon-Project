@@ -1,8 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, MessageCircle, Send, Stethoscope, X } from 'lucide-react'
+import { Activity, MessageCircle, Mic, MicOff, Send, Stethoscope, X } from 'lucide-react'
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 type ChatLanguage = 'english' | 'tagalog'
+type SpeechRecognitionResult = {
+  isFinal: boolean
+  0: { transcript: string }
+}
+type SpeechRecognitionEventLike = {
+  resultIndex: number
+  results: ArrayLike<SpeechRecognitionResult>
+}
+type SpeechRecognitionInstance = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null
+  onerror: (() => void) | null
+  onend: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionInstance
 
 const SYSTEM_PROMPT = `You are Gabay, a short health-education assistant for people using FilCare. You only answer about general health, wellness, and public health topics (e.g. what a symptom might mean in broad terms, when to seek urgent care, healthy habits, definitions).
 
@@ -38,7 +57,13 @@ export function GabayChatbot() {
   const [language, setLanguage] = useState<ChatLanguage>('english')
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [speechSupported, setSpeechSupported] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
+  const [autoSendQueued, setAutoSendQueued] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
+  const speechBaseInputRef = useRef('')
   const languageLabel = language === 'english' ? 'English' : 'Tagalog'
 
   const localized = useMemo(
@@ -63,6 +88,11 @@ export function GabayChatbot() {
               'Emergency? Call your local emergency services. Gabay does not provide diagnosis or treatment.',
             open: 'Open Gabay',
             close: 'Close Gabay',
+            micOn: 'Start voice input',
+            micOff: 'Stop voice input',
+            micHelp: 'Press and hold the mic, then speak your health concern.',
+            micNotSupported: 'Voice input is not supported in this browser.',
+            micError: 'Unable to start voice input. Please allow microphone access.',
           }
         : {
             initial:
@@ -83,6 +113,11 @@ export function GabayChatbot() {
               'Emergency? Tumawag sa local emergency services. Hindi nagbibigay ng diagnosis o treatment si Gabay.',
             open: 'Buksan si Gabay',
             close: 'Isara si Gabay',
+            micOn: 'Simulan ang voice input',
+            micOff: 'Itigil ang voice input',
+            micHelp: 'Pindutin at hawakan ang mic, saka sabihin ang concern sa kalusugan.',
+            micNotSupported: 'Hindi suportado ang voice input sa browser na ito.',
+            micError: 'Hindi ma-start ang voice input. Payagan ang microphone access.',
           },
     [language]
   )
@@ -92,10 +127,78 @@ export function GabayChatbot() {
   ])
 
   useEffect(() => {
+    const speechWindow = window as Window & {
+      SpeechRecognition?: SpeechRecognitionCtor
+      webkitSpeechRecognition?: SpeechRecognitionCtor
+    }
+    const Ctor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition
+    setSpeechSupported(Boolean(Ctor))
+    if (!Ctor) return
+
+    const recognition = new Ctor()
+    recognition.lang = language === 'tagalog' ? 'fil-PH' : 'en-US'
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.onresult = (event) => {
+      let transcript = ''
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        transcript += event.results[i][0].transcript
+      }
+      if (transcript.trim()) {
+        const base = speechBaseInputRef.current.trim()
+        const nextText = base ? `${base} ${transcript.trim()}` : transcript.trim()
+        setInput(nextText)
+      }
+    }
+    recognition.onend = () => setIsListening(false)
+    recognition.onerror = () => {
+      setVoiceError(localized.micError)
+      setIsListening(false)
+    }
+    recognitionRef.current = recognition
+
+    return () => {
+      recognition.stop()
+      recognitionRef.current = null
+    }
+  }, [language])
+
+  useEffect(() => {
     if (!open) return
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, open, loading])
+
+  const startVoiceInput = useCallback(() => {
+    const recognition = recognitionRef.current
+    if (!recognition || isListening || loading) return
+    setVoiceError('')
+    speechBaseInputRef.current = input
+    recognition.lang = language === 'tagalog' ? 'fil-PH' : 'en-US'
+    try {
+      recognition.start()
+      setIsListening(true)
+    } catch {
+      setVoiceError(localized.micError)
+      setIsListening(false)
+    }
+  }, [input, isListening, language, loading, localized.micError])
+
+  const stopVoiceInput = useCallback(() => {
+    const recognition = recognitionRef.current
+    if (!recognition || !isListening) return
+    const shouldAutoSend = Boolean(input.trim()) && !loading
+    try {
+      recognition.stop()
+    } catch {
+      // Ignore stop errors from rapid pointer events.
+    } finally {
+      setIsListening(false)
+      if (shouldAutoSend) {
+        setAutoSendQueued(true)
+      }
+    }
+  }, [input, isListening, loading])
 
   const send = useCallback(async () => {
     const text = input.trim()
@@ -157,6 +260,12 @@ export function GabayChatbot() {
       setLoading(false)
     }
   }, [input, loading, messages, languageLabel, localized])
+
+  useEffect(() => {
+    if (!autoSendQueued || isListening || loading) return
+    setAutoSendQueued(false)
+    void send()
+  }, [autoSendQueued, isListening, loading, send])
 
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-[9999] flex flex-col items-end gap-3">
@@ -253,6 +362,25 @@ export function GabayChatbot() {
               />
               <button
                 type="button"
+                onMouseDown={startVoiceInput}
+                onMouseUp={stopVoiceInput}
+                onMouseLeave={stopVoiceInput}
+                onTouchStart={startVoiceInput}
+                onTouchEnd={stopVoiceInput}
+                onTouchCancel={stopVoiceInput}
+                disabled={!speechSupported || loading}
+                className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition ${
+                  isListening
+                    ? 'border-red-500 bg-red-50 text-red-600'
+                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+                aria-label={isListening ? localized.micOff : localized.micOn}
+                title={!speechSupported ? localized.micNotSupported : isListening ? localized.micOff : localized.micOn}
+              >
+                {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
                 onClick={() => void send()}
                 disabled={loading || !input.trim()}
                 className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -261,6 +389,10 @@ export function GabayChatbot() {
                 <Send className="h-4 w-4" />
               </button>
             </div>
+            <p className="mt-2 text-[10px] leading-snug text-gray-400">
+              {!speechSupported ? localized.micNotSupported : localized.micHelp}
+            </p>
+            {voiceError && <p className="mt-1 text-[10px] leading-snug text-red-500">{voiceError}</p>}
             <p className="mt-2 text-[10px] leading-snug text-gray-400">{localized.emergency}</p>
           </div>
         </div>
