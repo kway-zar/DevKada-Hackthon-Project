@@ -82,7 +82,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'facilities' && (
           <FacilityFinder
             triageData={triageData}
-            onFacilitySelect={(facility) => {
+            onFacilitySelect={() => {
               setActiveView('queue');
             }}
           />
@@ -168,7 +168,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'facilities' && (
           <FacilityFinder
             triageData={triageData}
-            onFacilitySelect={(facility) => {
+            onFacilitySelect={() => {
               setActiveView('queue');
             }}
           />
