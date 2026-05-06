@@ -16,9 +16,24 @@ export default async function handler(
     return res.status(204).end();
   }
 
-  // Only accept POST
+  // Handle GET for health checks or debugging
+  if (req.method === 'GET') {
+    return res.status(200).json({ 
+      status: 'ok',
+      message: 'Overpass proxy is running. Use POST with Overpass QL query in body.' 
+    });
+  }
+
+  // Only accept POST for actual queries
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed', method: req.method });
+    console.log('Invalid method:', req.method);
+    console.log('URL:', req.url);
+    return res.status(405).json({ 
+      error: 'Method not allowed', 
+      method: req.method,
+      url: req.url,
+      received: 'Expected POST'
+    });
   }
 
   try {
