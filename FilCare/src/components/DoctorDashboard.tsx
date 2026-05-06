@@ -117,6 +117,43 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     return priorityOrder[a.priority as keyof typeof priorityOrder] - priorityOrder[b.priority as keyof typeof priorityOrder];
   });
 
+  const formatField = (value: unknown) => {
+    if (value === null || value === undefined || String(value).trim() === '') return 'N/A';
+    return String(value);
+  };
+
+  const downloadScannedRecord = () => {
+    if (!scannedPayload) return;
+
+    const lines = [
+      'FILCARE PATIENT RECORD',
+      '----------------------',
+      `Record ID: ${formatField(scannedPayload.id)}`,
+      `Full Name: ${formatField(scannedPayload.name)}`,
+      `Date of Birth: ${formatField(scannedPayload.dob || scannedPayload.dateOfBirth)}`,
+      `Blood Type: ${formatField(scannedPayload.bloodType)}`,
+      `Gender: ${formatField(scannedPayload.gender)}`,
+      `Phone: ${formatField(scannedPayload.phone)}`,
+      `Email: ${formatField(scannedPayload.email)}`,
+      `Address: ${formatField(scannedPayload.address)}`,
+      `Allergies: ${formatField(scannedPayload.allergies)}`,
+      `Current Medications: ${formatField(scannedPayload.medications)}`,
+      `Emergency Contact: ${formatField(scannedPayload.emergencyContact)}`,
+      `Emergency Phone: ${formatField(scannedPayload.emergencyPhone)}`,
+    ];
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const fileSafeName = formatField(scannedPayload.name).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    link.href = url;
+    link.download = `patient_record_${fileSafeName || 'unknown'}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const stopScanner = () => {
     if (scannerIntervalRef.current !== null) {
       window.clearInterval(scannerIntervalRef.current);
@@ -424,12 +461,72 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
               Open QR Scanner
             </button>
             {scannedPayload && (
-              <div className="mt-6 text-left bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-2xl mx-auto">
-                <h4 className="font-semibold text-blue-900 mb-2">Scanned Patient</h4>
-                <p className="text-sm text-blue-900"><span className="font-medium">ID:</span> {scannedPayload.id || 'N/A'}</p>
-                <p className="text-sm text-blue-900"><span className="font-medium">Name:</span> {scannedPayload.name || 'N/A'}</p>
-                <p className="text-sm text-blue-900"><span className="font-medium">Date of Birth:</span> {scannedPayload.dob || 'N/A'}</p>
-                <p className="text-sm text-blue-900"><span className="font-medium">Blood Type:</span> {scannedPayload.bloodType || 'N/A'}</p>
+              <div className="mt-6 text-left bg-gradient-to-br from-slate-50 to-blue-50 border border-blue-200 rounded-xl p-5 sm:p-6 max-w-3xl mx-auto shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+                  <div>
+                    <h4 className="text-lg font-semibold text-blue-900">Patient Medical Record</h4>
+                    <p className="text-sm text-blue-700">Generated from scanned QR payload</p>
+                  </div>
+                  <button
+                    onClick={downloadScannedRecord}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Download Record
+                  </button>
+                </div>
+
+                <div className="rounded-lg border border-blue-100 bg-white p-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Patient ID</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.id)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Full Name</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.name)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Date of Birth</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.dob || scannedPayload.dateOfBirth)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Blood Type</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.bloodType)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Gender</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.gender)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Phone Number</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.phone)}</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Email Address</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.email)}</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Home Address</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.address)}</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Known Allergies</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.allergies)}</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Current Medications</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.medications)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Emergency Contact</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.emergencyContact)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Emergency Phone</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.emergencyPhone)}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
