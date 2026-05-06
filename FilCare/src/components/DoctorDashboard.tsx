@@ -10,7 +10,6 @@ interface DoctorDashboardProps {
 export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [activeTab, setActiveTab] = useState<'queue' | 'patients' | 'analytics'>('queue');
   const [searchQuery, setSearchQuery] = useState('');
-  const [, setSelectedPatient] = useState<any>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerStatus, setScannerStatus] = useState('Waiting to start scanner.');
   const [scannerError, setScannerError] = useState('');
