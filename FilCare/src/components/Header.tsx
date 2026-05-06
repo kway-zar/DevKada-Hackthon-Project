@@ -52,7 +52,7 @@ export function Header({ size = 'md', showText = true }: FilCareLogoProps) {
     <>
       
       <div
-        className="top-0 left l-margin-auto r-margin-auto p-4 shadow-sm sticky z-1 bg-white/80 backdrop-blur-sm"
+        className="top-0 left l-margin-auto r-margin-auto p-4 shadow-sm sticky z-50 bg-white/80 backdrop-blur-sm"
         style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.12))' }}
       >
         <div className="flex items-center gap-2 sm:gap-3 ">

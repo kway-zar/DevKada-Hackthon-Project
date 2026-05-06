@@ -1,43 +1,92 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Activity, Heart } from "lucide-react";
+import { signInWithPassword, signUpWithPassword, type AuthRole, type AuthSession } from "../lib/supabaseAuth";
 
 interface AuthModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAuthSuccess?: (userType: 'patient' | 'provider') => void;
+  defaultUserType?: AuthRole;
+  onAuthSuccess?: (session: AuthSession) => void;
 }
 
-export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps) {
-  const [userType, setUserType] = useState<'patient' | 'provider'>('patient');
+export function AuthModal({ open, onOpenChange, defaultUserType = 'patient', onAuthSuccess }: AuthModalProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const isProviderPortal = defaultUserType === 'provider';
+
+  useEffect(() => {
+    if (open) {
+      setError('');
+    }
+  }, [open]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const formData = new FormData(e.currentTarget);
+    const email = String(formData.get('login-email') || '').trim();
+    const password = String(formData.get('login-password') || '');
 
-    setIsLoading(false);
-    onAuthSuccess?.(userType);
-    onOpenChange(false);
+    try {
+      const session = await signInWithPassword(email, password);
+      if (session.role !== defaultUserType) {
+        setError(`This account is registered as a ${session.role}. Switch the portal type and try again.`)
+        return
+      }
+
+      onAuthSuccess?.(session);
+      onOpenChange(false);
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unable to log in right now.')
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const formData = new FormData(e.currentTarget);
+    const fullName = String(formData.get('signup-name') || '').trim();
+    const email = String(formData.get('signup-email') || '').trim();
+    const password = String(formData.get('signup-password') || '');
+    const confirmPassword = String(formData.get('signup-confirm') || '');
 
-    setIsLoading(false);
-    onAuthSuccess?.(userType);
-    onOpenChange(false);
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.')
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      const session = await signUpWithPassword({
+        email,
+        password,
+        fullName,
+        role: defaultUserType,
+      });
+
+      if (session) {
+        onAuthSuccess?.(session)
+        onOpenChange(false)
+        return
+      }
+
+      setError('Account created. Check your email to confirm your sign-up, then log in.')
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unable to create your account right now.')
+    } finally {
+      setIsLoading(false)
+    }
   };
 
   return (
@@ -72,9 +121,9 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
         {/* Auth Tabs */}
         <div className="p-6">
           <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsList className={`grid w-full mb-6 ${isProviderPortal ? 'grid-cols-1' : 'grid-cols-2'}`}>
               <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              {!isProviderPortal && <TabsTrigger value="signup">Sign Up</TabsTrigger>}
             </TabsList>
 
             {/* Login Tab */}
@@ -86,6 +135,7 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   <Label htmlFor="login-email">Email</Label>
                   <Input
                     id="login-email"
+                    name="login-email"
                     type="email"
                     placeholder="you@example.com"
                     required
@@ -98,6 +148,7 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   <Label htmlFor="login-password">Password</Label>
                   <Input
                     id="login-password"
+                    name="login-password"
                     type="password"
                     placeholder="••••••••"
                     required
@@ -123,8 +174,15 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
               </form>
             </TabsContent>
 
+            {error && (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
             {/* Sign Up Tab */}
-            <TabsContent value="signup">
+            {!isProviderPortal && (
+              <TabsContent value="signup">
               <form onSubmit={handleSignup} className="space-y-4">
               
                 {/* Full Name */}
@@ -132,6 +190,7 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   <Label htmlFor="signup-name">Full Name</Label>
                   <Input
                     id="signup-name"
+                    name="signup-name"
                     type="text"
                     placeholder="Juan Dela Cruz"
                     required
@@ -144,6 +203,7 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   <Label htmlFor="signup-email">Email</Label>
                   <Input
                     id="signup-email"
+                    name="signup-email"
                     type="email"
                     placeholder="you@example.com"
                     required
@@ -156,6 +216,7 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   <Label htmlFor="signup-password">Password</Label>
                   <Input
                     id="signup-password"
+                    name="signup-password"
                     type="password"
                     placeholder="••••••••"
                     required
@@ -168,6 +229,7 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   <Label htmlFor="signup-confirm">Confirm Password</Label>
                   <Input
                     id="signup-confirm"
+                    name="signup-confirm"
                     type="password"
                     placeholder="••••••••"
                     required
@@ -204,7 +266,8 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   {isLoading ? "Creating account..." : "Create Account"}
                 </Button>
               </form>
-            </TabsContent>
+              </TabsContent>
+            )}
           </Tabs>
         </div>
 
