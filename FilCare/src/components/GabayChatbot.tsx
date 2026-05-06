@@ -59,8 +59,11 @@ export function GabayChatbot() {
   const [loading, setLoading] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const [speechSupported, setSpeechSupported] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
+  const [autoSendQueued, setAutoSendQueued] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
+  const speechBaseInputRef = useRef('')
   const languageLabel = language === 'english' ? 'English' : 'Tagalog'
 
   const localized = useMemo(
@@ -87,8 +90,9 @@ export function GabayChatbot() {
             close: 'Close Gabay',
             micOn: 'Start voice input',
             micOff: 'Stop voice input',
-            micHelp: 'Tap the mic and speak your health concern.',
+            micHelp: 'Press and hold the mic, then speak your health concern.',
             micNotSupported: 'Voice input is not supported in this browser.',
+            micError: 'Unable to start voice input. Please allow microphone access.',
           }
         : {
             initial:
@@ -111,8 +115,9 @@ export function GabayChatbot() {
             close: 'Isara si Gabay',
             micOn: 'Simulan ang voice input',
             micOff: 'Itigil ang voice input',
-            micHelp: 'Pindutin ang mic at sabihin ang concern sa kalusugan.',
+            micHelp: 'Pindutin at hawakan ang mic, saka sabihin ang concern sa kalusugan.',
             micNotSupported: 'Hindi suportado ang voice input sa browser na ito.',
+            micError: 'Hindi ma-start ang voice input. Payagan ang microphone access.',
           },
     [language]
   )
@@ -139,10 +144,17 @@ export function GabayChatbot() {
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         transcript += event.results[i][0].transcript
       }
-      if (transcript.trim()) setInput(transcript.trim())
+      if (transcript.trim()) {
+        const base = speechBaseInputRef.current.trim()
+        const nextText = base ? `${base} ${transcript.trim()}` : transcript.trim()
+        setInput(nextText)
+      }
     }
     recognition.onend = () => setIsListening(false)
-    recognition.onerror = () => setIsListening(false)
+    recognition.onerror = () => {
+      setVoiceError(localized.micError)
+      setIsListening(false)
+    }
     recognitionRef.current = recognition
 
     return () => {
@@ -157,18 +169,36 @@ export function GabayChatbot() {
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, open, loading])
 
-  const toggleVoiceInput = useCallback(() => {
+  const startVoiceInput = useCallback(() => {
     const recognition = recognitionRef.current
-    if (!recognition) return
-    if (isListening) {
-      recognition.stop()
-      setIsListening(false)
-      return
-    }
+    if (!recognition || isListening || loading) return
+    setVoiceError('')
+    speechBaseInputRef.current = input
     recognition.lang = language === 'tagalog' ? 'fil-PH' : 'en-US'
-    recognition.start()
-    setIsListening(true)
-  }, [isListening, language])
+    try {
+      recognition.start()
+      setIsListening(true)
+    } catch {
+      setVoiceError(localized.micError)
+      setIsListening(false)
+    }
+  }, [input, isListening, language, loading, localized.micError])
+
+  const stopVoiceInput = useCallback(() => {
+    const recognition = recognitionRef.current
+    if (!recognition || !isListening) return
+    const shouldAutoSend = Boolean(input.trim()) && !loading
+    try {
+      recognition.stop()
+    } catch {
+      // Ignore stop errors from rapid pointer events.
+    } finally {
+      setIsListening(false)
+      if (shouldAutoSend) {
+        setAutoSendQueued(true)
+      }
+    }
+  }, [input, isListening, loading])
 
   const send = useCallback(async () => {
     const text = input.trim()
@@ -230,6 +260,12 @@ export function GabayChatbot() {
       setLoading(false)
     }
   }, [input, loading, messages, languageLabel, localized])
+
+  useEffect(() => {
+    if (!autoSendQueued || isListening || loading) return
+    setAutoSendQueued(false)
+    void send()
+  }, [autoSendQueued, isListening, loading, send])
 
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-[9999] flex flex-col items-end gap-3">
@@ -326,7 +362,12 @@ export function GabayChatbot() {
               />
               <button
                 type="button"
-                onClick={toggleVoiceInput}
+                onMouseDown={startVoiceInput}
+                onMouseUp={stopVoiceInput}
+                onMouseLeave={stopVoiceInput}
+                onTouchStart={startVoiceInput}
+                onTouchEnd={stopVoiceInput}
+                onTouchCancel={stopVoiceInput}
                 disabled={!speechSupported || loading}
                 className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition ${
                   isListening
@@ -351,6 +392,7 @@ export function GabayChatbot() {
             <p className="mt-2 text-[10px] leading-snug text-gray-400">
               {!speechSupported ? localized.micNotSupported : localized.micHelp}
             </p>
+            {voiceError && <p className="mt-1 text-[10px] leading-snug text-red-500">{voiceError}</p>}
             <p className="mt-2 text-[10px] leading-snug text-gray-400">{localized.emergency}</p>
           </div>
         </div>

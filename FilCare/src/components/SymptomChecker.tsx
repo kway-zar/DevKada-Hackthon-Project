@@ -38,17 +38,36 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
       let priorityColor = 'green';
       let recommendation = 'Telemedicine consultation or next-day clinic appointment';
       let estimatedWait = '24-48 hours';
+      let riskScore = 0;
+      const matchedSignals: string[] = [];
 
-      const p1Keywords = ['chest pain', 'severe bleeding', 'shortness of breath', 'difficulty breathing', 'unconscious', 'stroke', 'heart attack', 'severe burn'];
-      const p2Keywords = ['high fever', 'deep laceration', 'persistent vomiting', 'severe pain', 'deep cut', 'broken bone', 'severe headache'];
+      const p1Keywords = ['chest pain', 'severe bleeding', 'shortness of breath', 'difficulty breathing', 'unconscious', 'stroke', 'heart attack', 'severe burn', 'fainting', 'seizure'];
+      const p2Keywords = ['high fever', 'deep laceration', 'persistent vomiting', 'severe pain', 'deep cut', 'broken bone', 'severe headache', 'dizziness', 'abdominal pain'];
+      const p3Keywords = ['cough', 'sore throat', 'rash', 'fatigue', 'joint pain', 'back pain', 'mild fever'];
 
-      if (p1Keywords.some(keyword => allSymptoms.includes(keyword))) {
+      const foundP1 = p1Keywords.filter((keyword) => allSymptoms.includes(keyword));
+      const foundP2 = p2Keywords.filter((keyword) => allSymptoms.includes(keyword));
+      const foundP3 = p3Keywords.filter((keyword) => allSymptoms.includes(keyword));
+
+      riskScore += foundP1.length * 6;
+      riskScore += foundP2.length * 3;
+      riskScore += foundP3.length * 1;
+      matchedSignals.push(...foundP1, ...foundP2, ...foundP3);
+
+      if (severity === 'severe') riskScore += 4;
+      if (severity === 'moderate') riskScore += 2;
+
+      if (duration === 'less-than-1-hour' && (severity === 'severe' || foundP1.length > 0)) riskScore += 3;
+      if (duration === '1-6-hours') riskScore += 1;
+      if (duration === 'more-than-week' && foundP1.length === 0) riskScore -= 1;
+
+      if (foundP1.length > 0 || riskScore >= 8) {
         priority = 'P1';
         priorityLabel = 'Immediate';
         priorityColor = 'red';
         recommendation = 'IMMEDIATE EMERGENCY CARE REQUIRED - Proceed to nearest ER';
         estimatedWait = '0-15 minutes';
-      } else if (p2Keywords.some(keyword => allSymptoms.includes(keyword)) || severity === 'severe') {
+      } else if (foundP2.length > 0 || riskScore >= 4) {
         priority = 'P2';
         priorityLabel = 'Urgent';
         priorityColor = 'yellow';
@@ -65,7 +84,9 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
         symptoms: allSymptoms,
         duration,
         severity,
-        analysis: generateAIAnalysis(priority),
+        riskScore,
+        matchedSignals,
+        analysis: generateAIAnalysis(priority, matchedSignals),
       };
 
       setTriageResult(result);
@@ -73,13 +94,16 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
     }, 2000);
   };
 
-  const generateAIAnalysis = (priority: string) => {
+  const generateAIAnalysis = (priority: string, matchedSignals: string[]) => {
+    const signalsText = matchedSignals.length > 0
+      ? ` Key indicators detected: ${matchedSignals.slice(0, 5).join(', ')}.`
+      : '';
     if (priority === 'P1') {
-      return 'AI has detected potentially life-threatening symptoms. Based on the keywords identified, immediate medical attention is crucial. Your symptoms suggest a critical condition that requires emergency room care.';
+      return `AI has detected potentially life-threatening symptoms. Immediate medical attention is crucial and emergency room care is recommended.${signalsText}`;
     } else if (priority === 'P2') {
-      return 'AI analysis indicates symptoms that require prompt medical attention. While not immediately life-threatening, these symptoms should be evaluated by a healthcare professional within 1-2 hours to prevent complications.';
+      return `AI analysis indicates symptoms that need prompt medical attention. While not immediately life-threatening, they should be evaluated within 1-2 hours to prevent complications.${signalsText}`;
     } else {
-      return 'AI assessment suggests routine medical care is appropriate. Your symptoms appear to be non-urgent and can likely be managed through telemedicine or a scheduled clinic appointment. Monitor your condition and seek immediate care if symptoms worsen.';
+      return `AI assessment suggests routine medical care is appropriate. Your symptoms currently appear non-urgent and can likely be managed through telemedicine or a scheduled clinic visit. Monitor for worsening symptoms.${signalsText}`;
     }
   };
 
