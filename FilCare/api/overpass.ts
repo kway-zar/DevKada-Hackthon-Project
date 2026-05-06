@@ -18,9 +18,22 @@ export default async function handler(
 
   // Handle GET for health checks or debugging
   if (req.method === 'GET') {
-    return res.status(200).json({ 
+    // If debug query param or header provided, echo back request info
+    const isDebug = req.query?.debug === '1' || req.headers['x-debug-overpass'] === '1';
+    if (isDebug) {
+      const bodyPreview = typeof req.body === 'string' ? req.body.slice(0, 100) : JSON.stringify(req.body || {}).slice(0,100);
+      return res.status(200).json({
+        status: 'debug',
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        bodyPreview,
+      });
+    }
+
+    return res.status(200).json({
       status: 'ok',
-      message: 'Overpass proxy is running. Use POST with Overpass QL query in body.' 
+      message: 'Overpass proxy is running. Use POST with Overpass QL query in body.'
     });
   }
 
