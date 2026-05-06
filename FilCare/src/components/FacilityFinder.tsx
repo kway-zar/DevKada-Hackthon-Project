@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { MapPin, Navigation, Phone, Clock, Star, Building2 } from 'lucide-react';
 
+const OVERPASS_PROXY_URL = '/api/overpass';
+
 interface FacilityFinderProps {
   triageData: any;
   onFacilitySelect: (facility: any) => void;
@@ -180,12 +182,16 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       );
       out center 25;
     `;
-
-    const response = await fetch('https://overpass-api.de/api/interpreter', {
+    
+    console.log('Sending Overpass query to:', OVERPASS_PROXY_URL);
+    console.log('Query body length:', query.length);
+    
+    const response = await fetch(OVERPASS_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       body: query,
     });
+    console.log('Response status:', response.status);
     if (!response.ok) {
       throw new Error('Failed to fetch nearby facilities');
     }
