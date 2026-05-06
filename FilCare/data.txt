@@ -1,0 +1,1 @@
+[out:json][timeout:5]; node(around:1000,42.36,-71.06)[amenity~"hospital|clinic"]; out;
