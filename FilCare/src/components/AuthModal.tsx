@@ -5,39 +5,67 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Activity, Heart } from "lucide-react";
+import { signInWithPassword, signUpWithPassword, type AuthSession, type AuthRole } from "../lib/supabaseAuth";
 
 interface AuthModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAuthSuccess?: (userType: 'patient' | 'provider') => void;
+  defaultUserType?: AuthRole;
+  onAuthSuccess?: (session: AuthSession) => void;
 }
 
-export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps) {
-  const [userType] = useState<'patient' | 'provider'>('patient');
+export function AuthModal({ open, onOpenChange, defaultUserType = 'patient', onAuthSuccess }: AuthModalProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
 
-    setIsLoading(false);
-    onAuthSuccess?.(userType);
-    onOpenChange(false);
+    try {
+      const session = await signInWithPassword(email, password);
+      onAuthSuccess?.(session);
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const fullName = formData.get('fullName') as string;
+    const confirmPassword = formData.get('confirmPassword') as string;
 
-    setIsLoading(false);
-    onAuthSuccess?.(userType);
-    onOpenChange(false);
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const session = await signUpWithPassword({ email, password, fullName });
+      if (session) {
+        onAuthSuccess?.(session);
+        onOpenChange(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Signup failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -47,7 +75,6 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
         <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white">
           <DialogHeader>
             <div className="flex items-center gap-3 mb-4">
-              {/* FilCare Logo */}
               <div className="relative">
                 <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg">
                   <Activity className="w-7 h-7 text-white" strokeWidth={2.5} />
@@ -77,15 +104,21 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
             </TabsList>
 
+            {/* Error Display */}
+            {error && (
+              <div className="mb-4 p-3 text-red-600 text-sm text-center bg-red-50 rounded-lg border border-red-200">
+                {error}
+              </div>
+            )}
+
             {/* Login Tab */}
             <TabsContent value="login">
               <form onSubmit={handleLogin} className="space-y-4">
-                
-                {/* Email */}
                 <div className="space-y-2">
                   <Label htmlFor="login-email">Email</Label>
                   <Input
                     id="login-email"
+                    name="email"
                     type="email"
                     placeholder="you@example.com"
                     required
@@ -93,11 +126,11 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   />
                 </div>
 
-                {/* Password */}
                 <div className="space-y-2">
                   <Label htmlFor="login-password">Password</Label>
                   <Input
                     id="login-password"
+                    name="password"
                     type="password"
                     placeholder="••••••••"
                     required
@@ -105,14 +138,12 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   />
                 </div>
 
-                {/* Forgot Password */}
                 <div className="text-right">
                   <button type="button" className="text-sm text-blue-600 hover:text-blue-700 hover:underline">
                     Forgot password?
                   </button>
                 </div>
 
-                {/* Submit Button */}
                 <Button
                   type="submit"
                   className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
@@ -126,12 +157,11 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
             {/* Sign Up Tab */}
             <TabsContent value="signup">
               <form onSubmit={handleSignup} className="space-y-4">
-              
-                {/* Full Name */}
                 <div className="space-y-2">
                   <Label htmlFor="signup-name">Full Name</Label>
                   <Input
                     id="signup-name"
+                    name="fullName"
                     type="text"
                     placeholder="Juan Dela Cruz"
                     required
@@ -139,11 +169,11 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   />
                 </div>
 
-                {/* Email */}
                 <div className="space-y-2">
                   <Label htmlFor="signup-email">Email</Label>
                   <Input
                     id="signup-email"
+                    name="email"
                     type="email"
                     placeholder="you@example.com"
                     required
@@ -151,11 +181,11 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   />
                 </div>
 
-                {/* Password */}
                 <div className="space-y-2">
                   <Label htmlFor="signup-password">Password</Label>
                   <Input
                     id="signup-password"
+                    name="password"
                     type="password"
                     placeholder="••••••••"
                     required
@@ -163,11 +193,11 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   />
                 </div>
 
-                {/* Confirm Password */}
                 <div className="space-y-2">
                   <Label htmlFor="signup-confirm">Confirm Password</Label>
                   <Input
                     id="signup-confirm"
+                    name="confirmPassword"
                     type="password"
                     placeholder="••••••••"
                     required
@@ -175,7 +205,6 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   />
                 </div>
 
-                {/* Terms and Conditions */}
                 <div className="flex items-start gap-2">
                   <input
                     type="checkbox"
@@ -195,7 +224,6 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
                   </Label>
                 </div>
 
-                {/* Submit Button */}
                 <Button
                   type="submit"
                   className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
@@ -208,7 +236,6 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
           </Tabs>
         </div>
 
-        {/* Footer */}
         <div className="border-t p-4 text-center text-sm text-muted-foreground bg-muted/30">
           Need help? Contact{" "}
           <button type="button" className="text-blue-600 hover:underline">
