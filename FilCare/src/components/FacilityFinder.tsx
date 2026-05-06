@@ -183,11 +183,15 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       out center 25;
     `;
     
+    console.log('Sending Overpass query to:', OVERPASS_PROXY_URL);
+    console.log('Query body length:', query.length);
+    
     const response = await fetch(OVERPASS_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       body: query,
     });
+    console.log('Response status:', response.status);
     if (!response.ok) {
       throw new Error('Failed to fetch nearby facilities');
     }
