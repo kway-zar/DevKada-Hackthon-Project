@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { MapPin, Navigation, Phone, Clock, Star, Building2 } from 'lucide-react';
 
+const OVERPASS_PROXY_URL = '/api/overpass';
+
 interface FacilityFinderProps {
   triageData: any;
   onFacilitySelect: (facility: any) => void;
@@ -180,10 +182,8 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       );
       out center 25;
     `;
-    const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-    const targetUrl = 'https://overpass-api.de/api/interpreter';
-    const apiUrl = proxyUrl + targetUrl;
-    const response = await fetch(apiUrl, {
+    
+    const response = await fetch(OVERPASS_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       body: query,
@@ -339,10 +339,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
         {filteredFacilities.map((facility) => (
           <div
             key={facility.id}
-            className={`bg-white rounded-2xl border-2 transition-all hover:shadow-lg active:scale-[0.99] ${selectedFacility?.id === facility.id
+            className={`bg-white rounded-2xl border-2 transition-all hover:shadow-lg active:scale-[0.99] ${
+              selectedFacility?.id === facility.id
                 ? 'border-blue-500 shadow-lg'
                 : 'border-gray-200'
-              }`}
+            }`}
           >
             <div className="p-4 sm:p-6">
               <div className="flex items-start justify-between mb-4">
@@ -414,10 +415,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
                   onClick={(event) => {
                     if (facility.phone === 'N/A') event.preventDefault();
                   }}
-                  className={`sm:flex-none px-4 py-3 border-2 rounded-xl active:scale-98 flex items-center justify-center gap-2 transition-transform ${facility.phone === 'N/A'
+                  className={`sm:flex-none px-4 py-3 border-2 rounded-xl active:scale-98 flex items-center justify-center gap-2 transition-transform ${
+                    facility.phone === 'N/A'
                       ? 'border-gray-200 text-gray-400 cursor-not-allowed'
                       : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
+                  }`}
                 >
                   <Phone className="w-4 h-4" />
                   <span>Call</span>
