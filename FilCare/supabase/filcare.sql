@@ -276,11 +276,12 @@ with check (auth.uid() = user_id);
 
 -- Patient and provider records are usually queried from a service-role backend,
 -- but the following read policies make direct authenticated reads possible.
-drop policy if exists "read own patient row" on public.patients;
-create policy "read own patient row"
+drop policy if exists "public read patient row" on public.patients;
+create policy "public read patient row"
 on public.patients
 for select
-using (auth.uid() = user_id);
+to anon, authenticated
+using (true);
 
 drop policy if exists "public insert patient registration" on public.patients;
 create policy "public insert patient registration"
@@ -602,3 +603,48 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+
+drop policy if exists "public insert patient registration" on public.patients;
+create policy "public insert patient registration"
+on public.patients
+for insert
+with check (true);
+
+grant insert on public.patients to anon, authenticated;
+
+
+/**/
+alter table public.patients enable row level security;
+
+grant insert on public.patients to anon, authenticated;
+
+drop policy if exists "public insert patient registration" on public.patients;
+create policy "public insert patient registration"
+on public.patients
+for insert
+to anon, authenticated
+with check (true);
+
+drop policy if exists "read own patient row" on public.patients;
+create policy "read own patient row"
+on public.patients
+for select
+to authenticated
+using (auth.uid() = user_id);
+
+ALTER TABLE public.patients
+DROP CONSTRAINT IF EXISTS patients_user_id_fkey;
+
+ALTER TABLE public.patients
+ADD CONSTRAINT patients_user_id_fkey
+FOREIGN KEY (user_id)
+REFERENCES public.accounts(id)
+ON DELETE SET NULL;
+
+grant select on public.accounts to anon, authenticated;
+grant insert on public.accounts to anon, authenticated;
+grant update on public.accounts to anon, authenticated;
+
+
+grant select on public.patients to anon, authenticated;
