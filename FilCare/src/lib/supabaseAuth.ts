@@ -50,6 +50,10 @@ export interface QueueEntryDashboardRow {
     phone?: string | null
     date_of_birth?: string | null
     allergies?: string | null
+    bp?: string | null
+    hr?: string | null
+    temp?: string | null
+    spo2?: string | null
   } | null
   facilities?: {
     name?: string | null
@@ -121,6 +125,10 @@ export interface RegisteredPatientRow {
   medications?: string | null
   emergency_contact_name?: string | null
   emergency_contact_phone?: string | null
+  bp?: string | null
+  hr?: string | null
+  temp?: string | null
+  spo2?: string | null
   created_at?: string | null
 }
 
@@ -379,7 +387,7 @@ export async function fetchQueueEntries(input: {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
     select:
-      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
+      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies,bp,hr,temp,spo2),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
     queue_date: `eq.${input.queueDate}`,
     order: 'priority.asc,queue_number.asc',
   })
@@ -450,10 +458,40 @@ export async function deleteQueueEntry(queueEntryId: string) {
   }
 }
 
+export async function updatePatientVitals(input: {
+  patientId: string
+  vitals: {
+    bp: string
+    hr: string
+    temp: string
+    spo2: string
+  }
+}) {
+  const restBase = getRestApiBase()
+  const response = await fetch(`${restBase}/patients?id=eq.${encodeURIComponent(input.patientId)}`, {
+    method: 'PATCH',
+    headers: {
+      ...getAuthHeaders(),
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      bp: input.vitals.bp || null,
+      hr: input.vitals.hr || null,
+      temp: input.vitals.temp || null,
+      spo2: input.vitals.spo2 || null,
+    }),
+  })
+
+  const payload = await readJson<any>(response)
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.hint || 'Failed to update patient vitals')
+  }
+}
+
 export async function fetchRegisteredPatients(): Promise<RegisteredPatientRow[]> {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
-    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
+    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,bp,hr,temp,spo2,created_at',
     order: 'created_at.desc',
     limit: '50',
   })
@@ -476,7 +514,7 @@ export async function fetchPatientByQrValue(value: string): Promise<RegisteredPa
 
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
-    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
+    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,bp,hr,temp,spo2,created_at',
     or: `(qr_token.eq.${trimmed},patient_code.eq.${trimmed},id.eq.${trimmed})`,
     limit: '1',
   })

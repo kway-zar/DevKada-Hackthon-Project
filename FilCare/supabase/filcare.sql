@@ -493,6 +493,12 @@ grant execute on function public.next_queue_number(uuid, date) to authenticated;
 ALTER TABLE public.patients
 ADD COLUMN IF NOT EXISTS address text;
 
+ALTER TABLE public.patients
+ADD COLUMN IF NOT EXISTS bp text,
+ADD COLUMN IF NOT EXISTS hr text,
+ADD COLUMN IF NOT EXISTS temp text,
+ADD COLUMN IF NOT EXISTS spo2 text;
+
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.accounts (
