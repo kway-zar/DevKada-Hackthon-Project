@@ -1529,6 +1529,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const activeQueueEntries = patients.filter((p) => p.status !== 'completed').length;
   const completedQueueEntries = patients.filter((p) => p.status === 'completed').length + completionBonus;
   const totalQueueEntries = activeQueueEntries + completedQueueEntries;
+  // These counts stay derived from live queue state so refreshes do not reset the dashboard view.
   const inProgressEntries = patients.filter((p) => p.status === 'in-progress').length;
   const waitingEntries = patients.filter((p) => p.status === 'waiting').length;
   const priorityCounts = {
