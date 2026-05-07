@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { CalendarDays, CheckCircle, Download, Edit3, FileText, Loader2, Shield, UserCircle, Upload } from 'lucide-react';
+import { fetchPatientMedicalHistory } from '../lib/supabaseAuth';
 
 type PatientData = {
   id?: string;
@@ -111,34 +112,9 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
       setHistoryError('');
 
       try {
-        const params = new URLSearchParams({
-          select: 'id,category,record_type,title,description,status,record_date,created_at',
-          patient_id: `eq.${patient.id}`,
-          order: 'record_date.desc,created_at.desc',
-        });
-
-        const response = await fetch(`${getRestBase()}/medical_records?${params.toString()}`, {
-          headers: {
-            apikey: getAnonKey(),
-            Authorization: `Bearer ${getAnonKey()}`,
-          },
-        });
-
-        const text = await response.text();
-        let payload: any = text;
-
-        try {
-          payload = text ? JSON.parse(text) : [];
-        } catch {
-          // Keep the raw response text for the error message below.
-        }
-
-        if (!response.ok) {
-          throw new Error(payload?.message || payload?.hint || text || 'Unable to load medical history');
-        }
-
+        const payload = await fetchPatientMedicalHistory(patient.id ?? '');
         if (!isCancelled) {
-          setMedicalHistory(Array.isArray(payload) ? payload : []);
+          setMedicalHistory(payload as MedicalHistoryRecord[]);
         }
       } catch (error) {
         if (!isCancelled) {

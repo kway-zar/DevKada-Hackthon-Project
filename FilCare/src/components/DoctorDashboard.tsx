@@ -34,6 +34,7 @@ import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import {
   fetchPatientByQrValue,
+  fetchPatientMedicalHistory,
   fetchProviderQueueDashboard,
   fetchQueueEntries,
   deleteQueueEntry,
@@ -56,6 +57,7 @@ type Priority = 'P1' | 'P2' | 'P3';
 
 interface Patient {
   id: string;
+  patientRecordId?: string;
   queueEntryId?: string;
   facilityId?: string;
   queueDate?: string;
@@ -267,6 +269,56 @@ function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (t
 }
 
 function ViewRecordsModal({ patient }: { patient: Patient }) {
+  const [medicalHistory, setMedicalHistory] = useState<Array<{ date: string; diagnosis: string; doctor: string }>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadMedicalHistory = async () => {
+      if (!patient?.id) {
+        setMedicalHistory([]);
+        setHistoryError('');
+        return;
+      }
+
+      setHistoryLoading(true);
+      setHistoryError('');
+
+      try {
+        const records = await fetchPatientMedicalHistory(patient.patientRecordId || patient.id);
+        if (isCancelled) return;
+
+        setMedicalHistory(
+          records.map((record) => ({
+            date: record.record_date || record.created_at || 'N/A',
+            diagnosis: record.title || record.description || record.record_type || 'Medical Visit',
+            doctor: record.category || 'Clinical',
+          }))
+        );
+      } catch (error) {
+        if (isCancelled) return;
+        setMedicalHistory([]);
+        setHistoryError(error instanceof Error ? error.message : 'Unable to load medical history');
+      } finally {
+        if (!isCancelled) setHistoryLoading(false);
+      }
+    };
+
+    void loadMedicalHistory();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [patient.id, patient.patientRecordId]);
+
+  const patientInitials = patient.name
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .slice(0, 2);
+
   return (
     <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
       <DialogHeader>
@@ -280,16 +332,12 @@ function ViewRecordsModal({ patient }: { patient: Patient }) {
         {/* Patient */}
         <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white text-sm font-bold shrink-0">
-            {patient.name
-              .split(' ')
-              .map((n) => n[0])
-              .join('')
-              .slice(0, 2)}
+            {patientInitials}
           </div>
           <div>
             <p className="font-semibold text-blue-900 text-sm">{patient.name}</p>
             <p className="text-xs text-muted-foreground">
-              {patient.age} y/o · {patient.gender} · Blood type: {patient.bloodType}
+              {patient.age} y/o - {patient.gender} - Blood type: {patient.bloodType}
             </p>
           </div>
         </div>
@@ -310,11 +358,15 @@ function ViewRecordsModal({ patient }: { patient: Patient }) {
         <div>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Known Allergies</p>
           <div className="flex flex-wrap gap-2">
-            {patient.allergies.map((a) => (
-              <span key={a} className="text-xs px-3 py-1 bg-red-50 text-red-700 border border-red-100 rounded-full font-medium">
-                {a}
-              </span>
-            ))}
+            {patient.allergies.length > 0 ? (
+              patient.allergies.map((a) => (
+                <span key={a} className="text-xs px-3 py-1 bg-red-50 text-red-700 border border-red-100 rounded-full font-medium">
+                  {a}
+                </span>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No allergies recorded.</p>
+            )}
           </div>
         </div>
 
@@ -323,25 +375,37 @@ function ViewRecordsModal({ patient }: { patient: Patient }) {
         {/* Visit History */}
         <div>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Visit History</p>
-          <div className="space-y-3">
-            {patient.medicalHistory.map((h, i) => (
-              <div key={i} className="flex gap-3 items-start group">
-                <div className="flex flex-col items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-blue-400 mt-1 shrink-0" />
-                  {i < patient.medicalHistory.length - 1 && (
-                    <div className="w-px h-full bg-blue-100 flex-1" style={{ minHeight: 20 }} />
-                  )}
-                </div>
-                <div className="flex-1 pb-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-foreground">{h.diagnosis}</p>
-                    <span className="text-xs text-muted-foreground shrink-0">{h.date}</span>
+          {historyLoading ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              Loading visit history...
+            </div>
+          ) : historyError ? (
+            <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {historyError}
+            </div>
+          ) : medicalHistory.length > 0 ? (
+            <div className="space-y-3">
+              {medicalHistory.map((h, i) => (
+                <div key={`${h.date}-${i}`} className="flex gap-3 items-start group">
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-full bg-blue-400 mt-1 shrink-0" />
+                    {i < medicalHistory.length - 1 && (
+                      <div className="w-px h-full bg-blue-100 flex-1" style={{ minHeight: 20 }} />
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{h.doctor}</p>
+                  <div className="flex-1 pb-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{h.diagnosis}</p>
+                      <span className="text-xs text-muted-foreground shrink-0">{h.date}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">{h.doctor}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No visit history found for this patient yet.</p>
+          )}
         </div>
 
         {/* QR Section */}
@@ -802,6 +866,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
         return {
           id: patient?.patient_code || row.id,
+          patientRecordId: row.patient_id,
           queueEntryId: row.id,
           facilityId: row.facility_id,
           queueDate: row.queue_date,
@@ -844,6 +909,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
         return {
           id: row.patient_code || row.id,
+          patientRecordId: row.id,
           queueEntryId: row.id,
           queueDate: row.queue_date,
           name: row.patient_name || 'Unknown Patient',
@@ -951,7 +1017,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
             patientId: patient.id,
             facilityId: patient.facilityId || null,
             providerId: null,
-            title: `Visit - Queue #${patient.queueNumber}`,
+            title: `${patient.location} - Queue #${patient.queueNumber}`,
             description: patient.chiefComplaint || patient.symptoms.join(', '),
             category: 'Clinical',
             recordType: 'Visit',
