@@ -14,6 +14,7 @@ import {
   MapPin,
   Phone,
   Stethoscope,
+  Edit3,
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import { FilCareLogo } from './FilCareLogo';
@@ -231,7 +232,7 @@ const PRIORITY_CONFIG: Record<
   },
 };
 
-type ModalType = 'see-patient' | 'view-records' | 'mark-complete' | null;
+type ModalType = 'see-patient' | 'view-records' | 'mark-complete' | 'edit-vitals' | null;
 
 function VitalChip({ label, value }: { label: string; value: string }) {
   return (
@@ -242,7 +243,7 @@ function VitalChip({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SeePatientModal({ patient }: { patient: Patient }) {
+function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (type: ModalType, patient: Patient) => void }) {
   const cfg = PRIORITY_CONFIG[patient.priority];
   const PriorityIcon = cfg.icon;
   return (
@@ -303,7 +304,18 @@ function SeePatientModal({ patient }: { patient: Patient }) {
 
         {/* Vitals */}
         <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Current Vitals</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Current Vitals</p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onAction('edit-vitals', patient)}
+              className="h-6 px-2 text-xs"
+            >
+              <Edit3 className="w-3 h-3 mr-1" />
+              Edit
+            </Button>
+          </div>
           <div className="grid grid-cols-4 gap-2">
             <VitalChip label="BP" value={patient.currentVitals.bp} />
             <VitalChip label="HR" value={patient.currentVitals.hr} />
@@ -518,12 +530,122 @@ function MarkCompleteModal({
   );
 }
 
+function EditVitalsModal({
+  patient,
+  onClose,
+  onSave,
+}: {
+  patient: Patient;
+  onClose: () => void;
+  onSave: (id: string, vitals: Patient['currentVitals']) => void;
+}) {
+  const [vitals, setVitals] = useState(patient.currentVitals);
+
+  const formatBloodPressure = (value: string) => {
+    // Allow numbers, slash, and spaces
+    const cleaned = value.replace(/[^0-9/\s]/g, '');
+    return cleaned;
+  };
+
+  const formatHeartRate = (value: string) => {
+    // Extract numbers only and add "bpm"
+    const numbers = value.replace(/[^0-9]/g, '');
+    return numbers ? `${numbers} bpm` : '';
+  };
+
+  const formatTemperature = (value: string) => {
+    // Extract numbers and decimal point, add "°C"
+    const numbers = value.replace(/[^0-9.]/g, '');
+    return numbers ? `${numbers}°C` : '';
+  };
+
+  const formatOxygenSaturation = (value: string) => {
+    // Extract numbers only and add "%"
+    const numbers = value.replace(/[^0-9]/g, '');
+    return numbers ? `${numbers}%` : '';
+  };
+
+  const handleSave = () => {
+    onSave(patient.id, vitals);
+  };
+
+  return (
+    <DialogContent className="max-w-md">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2 text-blue-900">
+          <Stethoscope className="w-5 h-5 text-blue-600" />
+          Edit Vitals - {patient.name}
+        </DialogTitle>
+      </DialogHeader>
+
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
+            <input
+              type="text"
+              value={vitals.bp}
+              onChange={(e) => setVitals({ ...vitals, bp: formatBloodPressure(e.target.value) })}
+              placeholder="120/80"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Heart Rate</label>
+            <input
+              type="text"
+              value={vitals.hr}
+              onChange={(e) => setVitals({ ...vitals, hr: formatHeartRate(e.target.value) })}
+              placeholder="72 bpm"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+            <input
+              type="text"
+              value={vitals.temp}
+              onChange={(e) => setVitals({ ...vitals, temp: formatTemperature(e.target.value) })}
+              placeholder="36.5°C"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">SpO₂</label>
+            <input
+              type="text"
+              value={vitals.spo2}
+              onChange={(e) => setVitals({ ...vitals, spo2: formatOxygenSaturation(e.target.value) })}
+              placeholder="98%"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-4">
+          <Button variant="outline" className="flex-1" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+            onClick={handleSave}
+          >
+            Save Vitals
+          </Button>
+        </div>
+      </div>
+    </DialogContent>
+  );
+}
+
 function PatientCard({
   patient,
   onAction,
+  isRemoving = false,
 }: {
   patient: Patient;
   onAction: (type: ModalType, patient: Patient) => void;
+  isRemoving?: boolean;
 }) {
   const cfg = PRIORITY_CONFIG[patient.priority];
   const isCompleted = patient.status === 'completed';
@@ -531,12 +653,19 @@ function PatientCard({
 
   return (
     <div
-      className={`bg-white rounded-2xl border-2 ${
-        isInProgress ? 'border-blue-500 shadow-lg' : cfg.border
-      } p-4 sm:p-6 hover:shadow-lg active:scale-[0.99] transition-all ${
-        !isCompleted ? 'cursor-pointer' : 'opacity-50'
+      className={`overflow-hidden transition-all duration-300 ease-in-out ${
+        isRemoving
+          ? 'opacity-0 -translate-x-6 max-h-0 p-0 m-0'
+          : 'opacity-100 translate-x-0 max-h-[1500px]'
       }`}
     >
+      <div
+        className={`bg-white rounded-2xl border-2 ${
+          isInProgress ? 'border-blue-500 shadow-lg' : cfg.border
+        } p-4 sm:p-6 hover:shadow-lg active:scale-[0.99] transition-all ${
+          !isCompleted ? 'cursor-pointer' : 'opacity-50'
+        }`}
+      >
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start gap-4">
           <div
@@ -608,12 +737,15 @@ function PatientCard({
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 }
 
 
 export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
+  const [patients, setPatients] = useState<Patient[]>(MOCK_PATIENTS);
+  const [removingPatientIds, setRemovingPatientIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'queue' | 'patients' | 'analytics'>('queue');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeModal, setActiveModal] = useState<ModalType>(null);
@@ -632,9 +764,22 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     setActiveModal(type);
   };
 
-  const handleMarkComplete = () => {
-    // Mark complete action
+  const handleMarkComplete = (id: string) => {
+    setRemovingPatientIds((prev) => [...prev, id]);
+    window.setTimeout(() => {
+      setPatients((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, status: 'completed' } : p))
+      );
+      setRemovingPatientIds((prev) => prev.filter((patientId) => patientId !== id));
+    }, 280);
     closeModal();
+  };
+
+  const handleSaveVitals = (id: string, vitals: Patient['currentVitals']) => {
+    setPatients((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, currentVitals: vitals } : p))
+    );
+    setActiveModal('see-patient');
   };
 
   const closeModal = () => {
@@ -805,9 +950,11 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     };
   }, [isScannerOpen]);
 
-  const filteredPatients = MOCK_PATIENTS.filter((p: Patient) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.queueNumber.toString().includes(searchQuery)
-  );
+  const filteredPatients = patients
+    .filter((p: Patient) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.queueNumber.toString().includes(searchQuery)
+    )
+    .filter((p: Patient) => (activeTab === 'queue' ? p.status !== 'completed' : true));
 
   return (
     <div className="size-full flex flex-col bg-gray-50">
@@ -882,7 +1029,12 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
             {/* Patient Cards */}
             <div className="grid md:grid-cols-2 gap-4">
               {filteredPatients.map((patient: Patient) => (
-                <PatientCard key={patient.id} patient={patient} onAction={handleAction} />
+                <PatientCard
+                  key={patient.id}
+                  patient={patient}
+                  onAction={handleAction}
+                  isRemoving={removingPatientIds.includes(patient.id)}
+                />
               ))}
             </div>
           </div>
@@ -1079,7 +1231,12 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
       {/* Modals */}
       <Dialog open={activeModal === 'see-patient'} onOpenChange={(o) => !o && closeModal()}>
-        {selectedPatient && activeModal === 'see-patient' && <SeePatientModal patient={selectedPatient} />}
+        {selectedPatient && activeModal === 'see-patient' && (
+          <SeePatientModal
+            patient={patients.find(p => p.id === selectedPatient.id) || selectedPatient}
+            onAction={handleAction}
+          />
+        )}
       </Dialog>
 
       <Dialog open={activeModal === 'view-records'} onOpenChange={(o) => !o && closeModal()}>
@@ -1088,7 +1245,17 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
       <Dialog open={activeModal === 'mark-complete'} onOpenChange={(o) => !o && closeModal()}>
         {selectedPatient && activeModal === 'mark-complete' && (
-          <MarkCompleteModal patient={selectedPatient} onClose={closeModal} onConfirm={() => handleMarkComplete()} />
+          <MarkCompleteModal patient={selectedPatient} onClose={closeModal} onConfirm={handleMarkComplete} />
+        )}
+      </Dialog>
+
+      <Dialog open={activeModal === 'edit-vitals'} onOpenChange={(o) => !o && closeModal()}>
+        {selectedPatient && activeModal === 'edit-vitals' && (
+          <EditVitalsModal
+            patient={patients.find(p => p.id === selectedPatient.id) || selectedPatient}
+            onClose={closeModal}
+            onSave={handleSaveVitals}
+          />
         )}
       </Dialog>
     </div>
