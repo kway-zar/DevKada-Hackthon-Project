@@ -38,6 +38,7 @@ import {
   fetchProviderQueueDashboard,
   fetchQueueEntries,
   deleteQueueEntry,
+  updatePatientVitals,
   type ProviderQueueDashboardRow,
   type QueueEntryDashboardRow,
   type RegisteredPatientRow,
@@ -416,9 +417,11 @@ function EditVitalsModal({
 }: {
   patient: Patient;
   onClose: () => void;
-  onSave: (id: string, vitals: Patient['currentVitals']) => void;
+  onSave: (id: string, vitals: Patient['currentVitals']) => Promise<void>;
 }) {
   const [vitals, setVitals] = useState(patient.currentVitals);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const formatBloodPressure = (value: string) => {
     // Allow numbers, slash, and spaces
@@ -445,7 +448,15 @@ function EditVitalsModal({
   };
 
   const handleSave = () => {
-    onSave(patient.id, vitals);
+    setIsSaving(true);
+    setSaveError('');
+    onSave(patient.id, vitals)
+      .catch((error) => {
+        setSaveError(error instanceof Error ? error.message : 'Unable to save vitals.');
+      })
+      .finally(() => {
+        setIsSaving(false);
+      });
   };
 
   return (
@@ -458,6 +469,12 @@ function EditVitalsModal({
       </DialogHeader>
 
       <div className="space-y-4">
+        {saveError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {saveError}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
@@ -508,8 +525,9 @@ function EditVitalsModal({
           <Button
             className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
             onClick={handleSave}
+            disabled={isSaving}
           >
-            Save Vitals
+            {isSaving ? 'Saving...' : 'Save Vitals'}
           </Button>
         </div>
       </div>
@@ -743,10 +761,10 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
           bloodType: patient?.blood_type || 'N/A',
           allergies: parseAllergies(patient?.allergies),
           currentVitals: {
-            bp: 'N/A',
-            hr: 'N/A',
-            temp: 'N/A',
-            spo2: 'N/A',
+            bp: patient?.bp || 'N/A',
+            hr: patient?.hr || 'N/A',
+            temp: patient?.temp || 'N/A',
+            spo2: patient?.spo2 || 'N/A',
           },
           medicalHistory: [],
           chiefComplaint: triage?.recommendation || triage?.symptoms_text || 'No complaint registered',
@@ -847,9 +865,24 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     }
   };
 
-  const handleSaveVitals = (id: string, vitals: Patient['currentVitals']) => {
+  const handleSaveVitals = async (id: string, vitals: Patient['currentVitals']) => {
+    setActionError(null);
+    await updatePatientVitals({
+      patientId: id,
+      vitals,
+    });
+
     setPatients((prev) =>
       prev.map((p) => (p.id === id ? { ...p, currentVitals: vitals } : p))
+    );
+
+    setSelectedPatient((current) =>
+      current && current.id === id
+        ? {
+            ...current,
+            currentVitals: vitals,
+          }
+        : current
     );
     setActiveModal('see-patient');
   };
@@ -1273,7 +1306,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                     {facilityFilter === 'all' ? 'All Facilities' : facilityFilter}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Showing Supabase queue entries for the selected date. Assigned facility: {providerFacility?.name || 'not set'}.
+                    Showing queue entries for the selected date. Assigned facility: {providerFacility?.name || 'not set'}.
                   </p>
                 </div>
 
@@ -1471,7 +1504,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                     {providerFacility?.name || 'Queue Network'} · {queueDate}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Metrics are calculated from the currently loaded Supabase queue entries.
+                    Metrics are calculated from the currently loaded queue entries.
                   </p>
                 </div>
                 <button

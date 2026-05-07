@@ -141,9 +141,12 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
     const session = loadAuthSession();
     if (!session?.userId) return;
 
+    let isCancelled = false;
+
     const checkQueue = async () => {
       try {
         const result = await fetchPatientActiveQueue(session.userId);
+        if (isCancelled) return;
         if (result.queueEntry) {
           setQueueEntry(result.queueEntry);
           setSelectedFacility(result.facility);
@@ -153,7 +156,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       }
     };
 
-    checkQueue();
+    void checkQueue();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [activeView, queueEntry]);
 
   useEffect(() => {
@@ -254,7 +261,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
         setSelectedFacility(facility);
         setQueueEntry(fallbackQueue);
-        setQueueSaveError('Facility was not saved to Supabase because of database policy, so this queue is shown locally. Ask an admin to allow facility inserts or seed real facilities.');
+        setQueueSaveError('Facility was not saved because of database policy, so this queue is shown locally. Ask an admin to allow facility inserts or seed real facilities.');
         setActiveView('queue');
         return;
       }
@@ -269,16 +276,18 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
     setQueueSaveError('');
   };
 
-  const handleCancelQueue = async () => {
-    if (!queueEntry?.id) {
+  const handleCancelQueue = async (queueEntryId?: string) => {
+    const idToCancel = queueEntryId || queueEntry?.id;
+
+    if (!idToCancel) {
       resetQueueState();
       setActiveView('facilities');
       return;
     }
 
-    if (!String(queueEntry.id).startsWith('local-')) {
+    if (!String(idToCancel).startsWith('local-')) {
       try {
-        await deleteQueueEntry(queueEntry.id);
+        await deleteQueueEntry(idToCancel);
       } catch (error) {
         setQueueSaveError(error instanceof Error ? error.message : 'Unable to cancel queue entry.');
         return;
