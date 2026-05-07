@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Activity,
+  BarChart3,
+  Building2,
   Clock,
   AlertTriangle,
   Search,
@@ -19,6 +22,8 @@ import {
   MapPin,
   Phone,
   Pill,
+  Timer,
+  Users,
   Stethoscope,
   Edit3,
 } from 'lucide-react';
@@ -30,8 +35,10 @@ import { Separator } from './ui/separator';
 import {
   fetchPatientByQrValue,
   fetchProviderFacility,
+  fetchProviderQueueDashboard,
   fetchQueueEntries,
   updateQueueEntryStatus,
+  type ProviderQueueDashboardRow,
   type QueueEntryDashboardRow,
   type RegisteredPatientRow,
 } from '../lib/supabaseAuth';
@@ -532,16 +539,16 @@ function PatientCard({
       }`}
     >
       <div
-        className={`bg-white rounded-2xl border-2 ${
+        className={`bg-white rounded-xl border-2 ${
           isInProgress ? 'border-blue-500 shadow-lg' : cfg.border
-        } p-4 sm:p-6 hover:shadow-lg active:scale-[0.99] transition-all ${
+        } p-4 hover:shadow-lg active:scale-[0.99] transition-all sm:p-5 ${
           !isCompleted ? 'cursor-pointer' : 'opacity-50'
         }`}
       >
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-start gap-4">
+      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3 sm:gap-4">
           <div
-            className={`${cfg.bg} w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold`}
+            className={`${cfg.bg} flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-lg font-bold text-white sm:h-16 sm:w-16 sm:text-xl`}
             style={{
               backgroundColor:
                 patient.priority === 'P1'
@@ -553,12 +560,12 @@ function PatientCard({
           >
             #{patient.queueNumber}
           </div>
-          <div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-1">{patient.name}</h3>
-            <p className="text-gray-600 mb-2">
+          <div className="min-w-0">
+            <h3 className="mb-1 truncate text-lg font-semibold text-gray-900 sm:text-xl">{patient.name}</h3>
+            <p className="mb-2 text-sm text-gray-600 sm:text-base">
               {patient.age} years old · Blood Type: {patient.bloodType}
             </p>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <span className={`px-3 py-1 rounded-full text-sm font-semibold ${cfg.bg} ${cfg.color}`}>
                 {patient.priority} - {cfg.label}
               </span>
@@ -572,21 +579,31 @@ function PatientCard({
             </div>
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-sm text-gray-500">Check-in</p>
-          <p className="font-medium text-gray-900">{patient.arrivalTime}</p>
-          <p className="text-sm text-gray-500 mt-2">Wait Time</p>
-          <p className="font-medium text-gray-900">{patient.waitTime}</p>
+        <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-left sm:block sm:bg-transparent sm:p-0 sm:text-right">
+          <div>
+            <p className="text-xs font-medium uppercase text-gray-500 sm:text-sm sm:normal-case">Check-in</p>
+            <p className="font-medium text-gray-900">{patient.arrivalTime}</p>
+          </div>
+          <div className="sm:mt-2">
+            <p className="text-xs font-medium uppercase text-gray-500 sm:text-sm sm:normal-case">Wait Time</p>
+            <p className="font-medium text-gray-900">{patient.waitTime}</p>
+          </div>
         </div>
       </div>
 
-      <div className="mb-4">
-        <p className="text-sm text-gray-500 mb-1">Reported Symptoms</p>
-        <p className="text-gray-900">{patient.symptoms.join(', ')}</p>
+      <div className="mb-4 grid gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm">
+        <div>
+          <p className="mb-1 font-medium text-gray-500">Facility</p>
+          <p className="font-semibold text-gray-900">{patient.location}</p>
+        </div>
+        <div>
+          <p className="mb-1 font-medium text-gray-500">Reported Symptoms</p>
+          <p className="text-gray-900">{patient.symptoms.join(', ')}</p>
+        </div>
       </div>
 
       {!isCompleted && (
-        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <button
             onClick={() => onAction('see-patient', patient)}
             className="flex-1 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 active:scale-98 font-medium shadow-lg transition-transform"
@@ -630,6 +647,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [queueDate, setQueueDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [providerFacility, setProviderFacility] = useState<{ id: string; name: string } | null>(null);
+  const [facilityFilter, setFacilityFilter] = useState('all');
   const [actionError, setActionError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -641,6 +659,9 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     setFetchError(null);
 
     try {
+      const assignedFacility = await fetchProviderFacility();
+      setProviderFacility(assignedFacility);
+
       const formatArrivalTime = (checkInAt: string | null) => {
         if (!checkInAt) return 'N/A';
         const date = new Date(checkInAt);
@@ -661,43 +682,6 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
           .map((item) => item.trim())
           .filter(Boolean)
           .slice(0, 8);
-      };
-
-      const toQueuePatient = (row: ProviderQueueDashboardRow): Patient => {
-        const waitTime =
-          row.status === 'completed'
-            ? 'Completed'
-            : row.estimated_wait_minutes === null
-              ? 'Pending'
-              : row.estimated_wait_minutes <= 0
-                ? 'Now'
-                : `~${row.estimated_wait_minutes} min`;
-
-        return {
-          id: row.patient_code || row.id,
-          name: row.patient_name || 'Unknown Patient',
-          age: 0,
-          gender: row.gender ? String(row.gender).replace(/^./, (c) => c.toUpperCase()) : 'Unknown',
-          priority: row.priority,
-          symptoms: parseSymptoms(row.symptoms_text),
-          queueNumber: row.queue_number,
-          waitTime,
-          location: row.facility_name || 'Facility not set',
-          phone: 'N/A',
-          dob: 'N/A',
-          bloodType: row.blood_type || 'N/A',
-          allergies: [],
-          currentVitals: {
-            bp: 'N/A',
-            hr: 'N/A',
-            temp: 'N/A',
-            spo2: 'N/A',
-          },
-          medicalHistory: [],
-          chiefComplaint: row.recommendation || row.symptoms_text || 'No complaint registered',
-          arrivalTime: formatArrivalTime(row.check_in_at),
-          status: mapStatus(row.status),
-        };
       };
 
       const parseAllergies = (value: string | null | undefined) => {
@@ -729,28 +713,35 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
       };
 
-      const toRegisteredPatient = (row: RegisteredPatientRow, index: number): Patient => {
-        const name =
-          row.full_name ||
-          [row.first_name, row.last_name].filter(Boolean).join(' ') ||
-          row.patient_code ||
-          row.id;
-        const age = formatAge(row.date_of_birth);
+      const toQueuePatient = (row: QueueEntryDashboardRow): Patient => {
+        const patient = row.patients;
+        const triage = row.symptom_triage_assessments;
+        const waitTime =
+          row.status === 'completed'
+            ? 'Completed'
+            : row.estimated_wait_minutes === null
+              ? 'Pending'
+              : row.estimated_wait_minutes <= 0
+                ? 'Now'
+                : `~${row.estimated_wait_minutes} min`;
 
         return {
-          id: row.patient_code || row.id,
-          name,
-          age,
-          gender: row.gender ? String(row.gender).replace(/^./, (c) => c.toUpperCase()) : 'Unknown',
-          priority: 'P3',
-          symptoms: ['No symptoms recorded'],
-          queueNumber: index + 1,
-          waitTime: 'Not queued',
-          location: 'Registration',
-          phone: row.phone || 'N/A',
-          dob: formatDate(row.date_of_birth),
-          bloodType: row.blood_type || 'N/A',
-          allergies: parseAllergies(row.allergies),
+          id: patient?.patient_code || row.id,
+          queueEntryId: row.id,
+          facilityId: row.facility_id,
+          queueDate: row.queue_date,
+          name: patient?.full_name || 'Unknown Patient',
+          age: formatAge(patient?.date_of_birth),
+          gender: patient?.gender ? String(patient.gender).replace(/^./, (c) => c.toUpperCase()) : 'Unknown',
+          priority: row.priority,
+          symptoms: parseSymptoms(triage?.symptoms_text || null),
+          queueNumber: row.queue_number,
+          waitTime,
+          location: row.facilities?.name || 'Facility not set',
+          phone: patient?.phone || 'N/A',
+          dob: formatDate(patient?.date_of_birth),
+          bloodType: patient?.blood_type || 'N/A',
+          allergies: parseAllergies(patient?.allergies),
           currentVitals: {
             bp: 'N/A',
             hr: 'N/A',
@@ -758,30 +749,68 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
             spo2: 'N/A',
           },
           medicalHistory: [],
-          chiefComplaint: 'Registered patient only. No queue triage found.',
-          arrivalTime: row.created_at
-            ? new Date(row.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
-            : 'TBD',
-          status: 'waiting',
+          chiefComplaint: triage?.recommendation || triage?.symptoms_text || 'No complaint registered',
+          arrivalTime: formatArrivalTime(row.check_in_at),
+          status: mapStatus(row.status),
         };
       };
 
-      const queueRows = await fetchProviderQueueDashboard();
-      if (queueRows.length > 0) {
-        setPatients(queueRows.map(toQueuePatient));
-        return;
-      }
+      const toViewPatient = (row: ProviderQueueDashboardRow): Patient => {
+        const waitTime =
+          row.status === 'completed'
+            ? 'Completed'
+            : row.estimated_wait_minutes === null
+              ? 'Pending'
+              : row.estimated_wait_minutes <= 0
+                ? 'Now'
+                : `~${row.estimated_wait_minutes} min`;
 
-      const registeredRows = await fetchRegisteredPatients();
-      setPatients(registeredRows.map(toRegisteredPatient));
+        return {
+          id: row.patient_code || row.id,
+          queueEntryId: row.id,
+          queueDate: row.queue_date,
+          name: row.patient_name || 'Unknown Patient',
+          age: 0,
+          gender: row.gender ? String(row.gender).replace(/^./, (c) => c.toUpperCase()) : 'Unknown',
+          priority: row.priority,
+          symptoms: parseSymptoms(row.symptoms_text),
+          queueNumber: row.queue_number,
+          waitTime,
+          location: row.facility_name || 'Facility not set',
+          phone: 'N/A',
+          dob: 'N/A',
+          bloodType: row.blood_type || 'N/A',
+          allergies: [],
+          currentVitals: {
+            bp: 'N/A',
+            hr: 'N/A',
+            temp: 'N/A',
+            spo2: 'N/A',
+          },
+          medicalHistory: [],
+          chiefComplaint: row.recommendation || row.symptoms_text || 'No complaint registered',
+          arrivalTime: formatArrivalTime(row.check_in_at),
+          status: mapStatus(row.status),
+        };
+      };
+
+      try {
+        const queueRows = await fetchQueueEntries({
+          queueDate,
+        });
+        setPatients(queueRows.map(toQueuePatient));
+      } catch (_directQueueError) {
+        const viewRows = await fetchProviderQueueDashboard(queueDate);
+        setPatients(viewRows.map(toViewPatient));
+      }
     } catch (error) {
       setFetchError(
-        error instanceof Error ? error.message : 'Unable to load queued patient triage.'
+        error instanceof Error ? error.message : 'Unable to load queue entries.'
       );
     } finally {
       setLoadingPatients(false);
     }
-  }, []);
+  }, [queueDate]);
 
   useEffect(() => {
     fetchPatients();
@@ -795,15 +824,30 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     setActiveModal(type);
   };
 
-  const handleMarkComplete = (id: string) => {
-    setRemovingPatientIds((prev) => [...prev, id]);
-    window.setTimeout(() => {
-      setPatients((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, status: 'completed' } : p))
-      );
-      setRemovingPatientIds((prev) => prev.filter((patientId) => patientId !== id));
-    }, 280);
-    closeModal();
+  const handleMarkComplete = async (id: string) => {
+    const patient = patients.find((p) => p.id === id);
+    if (!patient?.queueEntryId) {
+      setActionError('This patient does not have a queue entry to update.');
+      closeModal();
+      return;
+    }
+
+    setActionError(null);
+    try {
+      await updateQueueEntryStatus({
+        queueEntryId: patient.queueEntryId,
+        status: 'completed',
+      });
+      setRemovingPatientIds((prev) => [...prev, id]);
+      window.setTimeout(() => {
+        setPatients((prev) => prev.filter((p) => p.id !== id));
+        setRemovingPatientIds((prev) => prev.filter((patientId) => patientId !== id));
+      }, 280);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to update queue entry.');
+    } finally {
+      closeModal();
+    }
   };
 
   const handleSaveVitals = (id: string, vitals: Patient['currentVitals']) => {
@@ -1099,9 +1143,81 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
   const filteredPatients = patients
     .filter((p: Patient) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.queueNumber.toString().includes(searchQuery)
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.queueNumber.toString().includes(searchQuery)
     )
+    .filter((p: Patient) => facilityFilter === 'all' || p.location === facilityFilter)
     .filter((p: Patient) => (activeTab === 'queue' ? p.status !== 'completed' : true));
+
+  const queueFacilities = Array.from(new Set(patients.map((p) => p.location).filter(Boolean))).sort();
+
+  const totalQueueEntries = patients.length;
+  const activeQueueEntries = patients.filter((p) => p.status !== 'completed').length;
+  const completedQueueEntries = patients.filter((p) => p.status === 'completed').length;
+  const inProgressEntries = patients.filter((p) => p.status === 'in-progress').length;
+  const waitingEntries = patients.filter((p) => p.status === 'waiting').length;
+  const priorityCounts = {
+    P1: patients.filter((p) => p.priority === 'P1').length,
+    P2: patients.filter((p) => p.priority === 'P2').length,
+    P3: patients.filter((p) => p.priority === 'P3').length,
+  };
+  const waitTimes = patients
+    .map((p) => {
+      const match = p.waitTime.match(/\d+/);
+      return match ? Number(match[0]) : null;
+    })
+    .filter((value): value is number => value !== null);
+  const averageWait = waitTimes.length > 0
+    ? Math.round(waitTimes.reduce((sum, value) => sum + value, 0) / waitTimes.length)
+    : 0;
+  const longestWait = waitTimes.length > 0 ? Math.max(...waitTimes) : 0;
+  const facilityBreakdown = Object.entries(
+    patients.reduce<Record<string, number>>((acc, patient) => {
+      acc[patient.location] = (acc[patient.location] || 0) + 1;
+      return acc;
+    }, {})
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  const maxFacilityCount = Math.max(1, ...facilityBreakdown.map(([, count]) => count));
+  const genderBreakdown = Object.entries(
+    patients.reduce<Record<string, number>>((acc, patient) => {
+      const key = patient.gender || 'Unknown';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b[1] - a[1]);
+  const percentOfTotal = (count: number) => {
+    if (totalQueueEntries === 0) return 0;
+    return Math.round((count / totalQueueEntries) * 100);
+  };
+  const peakPriority = (Object.entries(priorityCounts) as Array<[Priority, number]>)
+    .sort((a, b) => b[1] - a[1])[0]?.[0] || 'P3';
+  const queueLoadLabel =
+    activeQueueEntries >= 12 ? 'High' : activeQueueEntries >= 6 ? 'Moderate' : activeQueueEntries > 0 ? 'Light' : 'Clear';
+  const analyticsBar = (
+    label: string,
+    count: number,
+    colorClass: string,
+    subLabel?: string
+  ) => (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-sm font-medium text-slate-700">{label}</span>
+        <span className="text-sm font-semibold text-slate-950">
+          {count} <span className="font-normal text-slate-500">({percentOfTotal(count)}%)</span>
+        </span>
+      </div>
+      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className={`h-full rounded-full ${colorClass}`}
+          style={{ width: `${Math.max(percentOfTotal(count), count > 0 ? 4 : 0)}%` }}
+        />
+      </div>
+      {subLabel && <p className="mt-1 text-xs text-slate-500">{subLabel}</p>}
+    </div>
+  );
 
   return (
     <div className="size-full flex flex-col bg-gray-50">
@@ -1152,35 +1268,90 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
       <div className="flex-1 overflow-auto p-4 sm:p-6">
         {activeTab === 'queue' && (
           <div className="space-y-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-sm text-gray-600">Showing queued patients from Supabase. Falls back to registered patients if no queue rows exist.</div>
-              <button
-                onClick={fetchPatients}
-                className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-              >
-                Refresh list
-              </button>
+            <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-blue-700">Queue Management</p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                    {facilityFilter === 'all' ? 'All Facilities' : facilityFilter}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Showing Supabase queue entries for the selected date. Assigned facility: {providerFacility?.name || 'not set'}.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] lg:min-w-[760px]">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Queue Date</span>
+                    <input
+                      type="date"
+                      value={queueDate}
+                      onChange={(event) => setQueueDate(event.target.value)}
+                      className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Facility</span>
+                    <select
+                      value={facilityFilter}
+                      onChange={(event) => setFacilityFilter(event.target.value)}
+                      className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="all">All Facilities</option>
+                      {queueFacilities.map((facility) => (
+                        <option key={facility} value={facility}>{facility}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    onClick={fetchPatients}
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-100 sm:self-end"
+                  >
+                    Refresh
+                  </button>
+                  <button
+                    onClick={() => setIsScannerOpen(true)}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 sm:self-end"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    Scan QR
+                  </button>
+                </div>
+              </div>
+
+              {actionError && (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {actionError}
+                </div>
+              )}
             </div>
 
             {/* Search */}
-            <div className="flex items-center gap-4">
-              <div className="flex-1 relative">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search by name or queue number..."
+                  placeholder="Search by name, facility, or queue number..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <button
-                onClick={() => setIsScannerOpen(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-              >
-                <QrCode className="w-4 h-4" />
-                Scan QR
-              </button>
+              <div className="grid grid-cols-3 gap-2 text-center sm:w-auto">
+                <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
+                  <p className="text-xs text-red-600">P1</p>
+                  <p className="font-semibold text-red-700">{patients.filter((p) => p.priority === 'P1' && p.status !== 'completed').length}</p>
+                </div>
+                <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                  <p className="text-xs text-amber-600">P2</p>
+                  <p className="font-semibold text-amber-700">{patients.filter((p) => p.priority === 'P2' && p.status !== 'completed').length}</p>
+                </div>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
+                  <p className="text-xs text-emerald-600">P3</p>
+                  <p className="font-semibold text-emerald-700">{patients.filter((p) => p.priority === 'P3' && p.status !== 'completed').length}</p>
+                </div>
+              </div>
             </div>
 
             {/* Patient Cards */}
@@ -1194,7 +1365,8 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
               </div>
             ) : filteredPatients.length === 0 ? (
               <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center text-gray-600">
-                No queued or registered patients found. Complete pre-registration first, then refresh the page.
+                No queue entries found for {queueDate}
+                {facilityFilter !== 'all' ? ` at ${facilityFilter}` : ''}. Complete symptom triage and facility selection first, then refresh.
               </div>
             ) : (
               <div className="grid md:grid-cols-2 gap-4">
@@ -1293,57 +1465,171 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         )}
 
         {activeTab === 'analytics' && (
-          <div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <h3 className="text-xl font-semibold text-gray-900 mb-4">Today&apos;s Statistics</h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Total Patients Seen</span>
-                    <span className="text-2xl font-bold text-gray-900">47</span>
+          <div className="space-y-6">
+            <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-blue-700">Operational Analytics</p>
+                  <h2 className="mt-1 text-2xl font-semibold text-slate-950">
+                    {providerFacility?.name || 'Queue Network'} · {queueDate}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Metrics are calculated from the currently loaded Supabase queue entries.
+                  </p>
+                </div>
+                <button
+                  onClick={fetchPatients}
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Refresh Data
+                </button>
+              </div>
+            </div>
+
+            {fetchError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {fetchError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-500">Total Queue Entries</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-950">{totalQueueEntries}</p>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Average Wait Time</span>
-                    <span className="text-2xl font-bold text-gray-900">23 min</span>
+                  <div className="rounded-lg bg-blue-50 p-3 text-blue-600">
+                    <Users className="h-6 w-6" />
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Critical Cases</span>
-                    <span className="text-2xl font-bold text-red-600">5</span>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">{activeQueueEntries} active, {completedQueueEntries} completed</p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-500">Average Wait</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-950">{averageWait}<span className="text-base font-semibold text-slate-500"> min</span></p>
                   </div>
+                  <div className="rounded-lg bg-amber-50 p-3 text-amber-600">
+                    <Timer className="h-6 w-6" />
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">Longest listed wait: {longestWait} min</p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-500">Critical Load</p>
+                    <p className="mt-2 text-3xl font-bold text-red-600">{priorityCounts.P1}</p>
+                  </div>
+                  <div className="rounded-lg bg-red-50 p-3 text-red-600">
+                    <AlertCircle className="h-6 w-6" />
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">Top priority group: {peakPriority}</p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-500">Current Load</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-950">{queueLoadLabel}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50 p-3 text-emerald-600">
+                    <Activity className="h-6 w-6" />
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">{waitingEntries} waiting, {inProgressEntries} in progress</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-950">Priority Distribution</h3>
+                    <p className="text-sm text-slate-500">Triage urgency across loaded entries</p>
+                  </div>
+                  <BarChart3 className="h-5 w-5 text-slate-400" />
+                </div>
+                <div className="space-y-5">
+                  {analyticsBar('P1 · Immediate', priorityCounts.P1, 'bg-red-500', 'Emergency or potentially life-threatening')}
+                  {analyticsBar('P2 · Urgent', priorityCounts.P2, 'bg-amber-400', 'Needs prompt provider attention')}
+                  {analyticsBar('P3 · Non-Urgent', priorityCounts.P3, 'bg-emerald-500', 'Routine or standard queue')}
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <h3 className="text-xl font-semibold text-gray-900 mb-4">Priority Distribution</h3>
-                <div className="space-y-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                <div className="mb-5 flex items-center justify-between">
                   <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="text-gray-600">P1 - Critical</span>
-                      <span className="text-red-600 font-semibold">12%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div className="bg-red-500 h-2 rounded-full" style={{ width: '12%' }} />
-                    </div>
+                    <h3 className="text-lg font-semibold text-slate-950">Queue Status</h3>
+                    <p className="text-sm text-slate-500">Operational state for the selected date</p>
                   </div>
-                  <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="text-gray-600">P2 - Urgent</span>
-                      <span className="text-yellow-600 font-semibold">33%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div className="bg-yellow-500 h-2 rounded-full" style={{ width: '33%' }} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="text-gray-600">P3 - Routine</span>
-                      <span className="text-green-600 font-semibold">55%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div className="bg-green-500 h-2 rounded-full" style={{ width: '55%' }} />
-                    </div>
-                  </div>
+                  <CheckCircle2 className="h-5 w-5 text-slate-400" />
                 </div>
+                <div className="space-y-5">
+                  {analyticsBar('Waiting', waitingEntries, 'bg-slate-500')}
+                  {analyticsBar('In Progress', inProgressEntries, 'bg-blue-500')}
+                  {analyticsBar('Completed', completedQueueEntries, 'bg-emerald-500')}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 xl:col-span-2">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-950">Facility Volume</h3>
+                    <p className="text-sm text-slate-500">Queue share by facility</p>
+                  </div>
+                  <Building2 className="h-5 w-5 text-slate-400" />
+                </div>
+                {facilityBreakdown.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                    No facility volume available for this date.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {facilityBreakdown.map(([facility, count]) => (
+                      <div key={facility}>
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="truncate text-sm font-medium text-slate-700">{facility}</span>
+                          <span className="text-sm font-semibold text-slate-950">{count}</span>
+                        </div>
+                        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-blue-500"
+                            style={{ width: `${Math.max((count / maxFacilityCount) * 100, 4)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                <div className="mb-5">
+                  <h3 className="text-lg font-semibold text-slate-950">Patient Mix</h3>
+                  <p className="text-sm text-slate-500">Demographics from queue records</p>
+                </div>
+                {genderBreakdown.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                    No patient mix available.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {genderBreakdown.map(([gender, count]) => (
+                      <div key={gender} className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
+                        <span className="text-sm font-medium text-slate-700">{gender}</span>
+                        <span className="text-sm font-semibold text-slate-950">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
