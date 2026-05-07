@@ -749,3 +749,66 @@ export async function fetchPatientQueueStatus(queueEntryId: string): Promise<{
     nowServing: Math.max(1, queue.queue_number - peopleAhead),
   }
 }
+
+export async function fetchPatientActiveQueue(userId: string): Promise<{
+  queueEntry: PatientQueueEntry | null
+  facility: QueueFacility | null
+}> {
+  const restBase = getRestApiBase()
+
+  try {
+    // First, get the patient_id for this userId
+    const patientParams = new URLSearchParams({
+      select: 'id',
+      user_id: `eq.${userId}`,
+      limit: '1',
+    })
+
+    const patientResponse = await fetch(`${restBase}/patients?${patientParams.toString()}`, {
+      headers: getAuthHeaders(),
+    })
+
+    const patientPayload = await readJson<any>(patientResponse)
+    if (!patientResponse.ok) {
+      throw new Error(patientPayload?.message || patientPayload?.hint || 'Unable to fetch patient')
+    }
+
+    const patient = Array.isArray(patientPayload) ? patientPayload[0] : patientPayload
+    if (!patient?.id) {
+      return { queueEntry: null, facility: null }
+    }
+
+    const patientId = patient.id
+
+    // Now query for active queue entries for this patient
+    const queueParams = new URLSearchParams({
+      select: '*,facilities(*)',
+      patient_id: `eq.${patientId}`,
+      status: `in.(waiting,in_progress,called)`,
+      order: 'created_at.desc',
+      limit: '1',
+    })
+
+    const queueResponse = await fetch(`${restBase}/queue_entries?${queueParams.toString()}`, {
+      headers: getAuthHeaders(),
+    })
+
+    const queuePayload = await readJson<any>(queueResponse)
+    if (!queueResponse.ok) {
+      throw new Error(queuePayload?.message || queuePayload?.hint || 'Unable to fetch queue entry')
+    }
+
+    const queueEntry = Array.isArray(queuePayload) ? queuePayload[0] : null
+    if (!queueEntry) {
+      return { queueEntry: null, facility: null }
+    }
+
+    return {
+      queueEntry: queueEntry as PatientQueueEntry,
+      facility: (queueEntry.facilities || null) as QueueFacility | null,
+    }
+  } catch (error) {
+    console.error('Error fetching patient active queue:', error)
+    return { queueEntry: null, facility: null }
+  }
+}

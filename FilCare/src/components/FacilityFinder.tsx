@@ -3,8 +3,6 @@ import { MapPin, Navigation, Phone, Clock, Star, Building2 } from 'lucide-react'
 
 const OVERPASS_PROXY_URL =
   (import.meta.env.VITE_OVERPASS_PROXY_URL as string | undefined)?.trim() || '/api/overpass';
-const OVERPASS_DIRECT_URL =
-  (import.meta.env.VITE_OVERPASS_DIRECT_URL as string | undefined)?.trim() || 'https://overpass-api.de/api/interpreter';
 
 interface FacilityFinderProps {
   triageData: any;

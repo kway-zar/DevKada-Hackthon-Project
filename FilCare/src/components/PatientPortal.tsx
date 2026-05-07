@@ -6,7 +6,7 @@ import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
 import PatientProfile from './PatientProfile';
-import { createTriageQueueEntry, deleteQueueEntry, loadAuthSession } from '../lib/supabaseAuth';
+import { createTriageQueueEntry, deleteQueueEntry, loadAuthSession, fetchPatientActiveQueue } from '../lib/supabaseAuth';
 
 interface PatientPortalProps {
   patientData: any;
@@ -143,6 +143,29 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         }
       });
   }, []);
+
+  useEffect(() => {
+    // Check for existing active queue when user views the queue page
+    if (activeView !== 'queue') return;
+    if (queueEntry) return; // Already have a queue entry from facility selection
+
+    const session = loadAuthSession();
+    if (!session?.userId) return;
+
+    const checkQueue = async () => {
+      try {
+        const result = await fetchPatientActiveQueue(session.userId);
+        if (result.queueEntry) {
+          setQueueEntry(result.queueEntry);
+          setSelectedFacility(result.facility);
+        }
+      } catch (error) {
+        console.error('Error checking for existing queue:', error);
+      }
+    };
+
+    checkQueue();
+  }, [activeView, queueEntry]);
 
   useEffect(() => {
     // When user opens Records view, fetch the latest patient data from REST API
