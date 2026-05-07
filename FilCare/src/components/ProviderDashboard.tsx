@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Activity,
   Users,
@@ -552,6 +553,7 @@ interface ProviderDashboardProps {
 }
 
 export function ProviderDashboard({ onBack }: ProviderDashboardProps) {
+  const navigate = useNavigate();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -631,6 +633,39 @@ export function ProviderDashboard({ onBack }: ProviderDashboardProps) {
   }, []);
 
   const handleAction = (type: ModalType, patient: Patient) => {
+    if (type === "view-records") {
+      navigate(`/provider/patient/${patient.id}`, {
+        state: {
+          entry: {
+            patientName: patient.name,
+            patientId: patient.id,
+            priority: patient.priority,
+            queueNumber: patient.queueNumber,
+            status:
+              patient.status === "completed"
+                ? "Completed"
+                : patient.status === "in-progress"
+                ? "In Progress"
+                : "Waiting",
+            checkedInAt: patient.arrivalTime,
+            symptoms: patient.symptoms.join(", "),
+            estimatedWait: patient.waitTime,
+            age: patient.age,
+            gender: patient.gender,
+            bloodType: patient.bloodType,
+            allergies: patient.allergies,
+            medication: [],
+            medicalHistory: patient.medicalHistory.map(
+              (record) => `${record.date} — ${record.diagnosis} (${record.doctor})`
+            ),
+            qrCode: `https://filcare.com/patient/${patient.id}`,
+            contactNumber: patient.phone,
+          },
+        },
+      });
+      return;
+    }
+
     setSelectedPatient(patient);
     setActiveModal(type);
   };

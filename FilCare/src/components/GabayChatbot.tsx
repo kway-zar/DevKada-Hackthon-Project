@@ -42,13 +42,17 @@ function looksOffTopicForGabay(text: string): boolean {
 }
 
 function getApiConfig() {
-  const apiKey = (import.meta.env.VITE_OPENAI_API_KEY as string | undefined)?.trim()
-  const base =
-    ((import.meta.env.VITE_OPENAI_API_BASE as string | undefined)?.trim() ||
-      'https://openrouter.ai/api/v1').replace(/\/$/, '')
+  const openAiKey = (import.meta.env.VITE_OPENAI_API_KEY as string | undefined)?.trim()
+  const openRouterKey = (import.meta.env.VITE_OPENROUTER_API_KEY as string | undefined)?.trim()
+  const apiKey = openAiKey || openRouterKey || ''
+  const explicitBase =
+    (import.meta.env.VITE_OPENAI_API_BASE as string | undefined)?.trim() ||
+    (import.meta.env.VITE_OPENROUTER_API_BASE as string | undefined)?.trim()
+  const base = (explicitBase || (openRouterKey ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '')
   const model =
     (import.meta.env.VITE_OPENAI_MODEL as string | undefined)?.trim() ||
-    'openai/gpt-4o-mini'
+    (import.meta.env.VITE_OPENROUTER_MODEL as string | undefined)?.trim() ||
+    (openRouterKey ? 'openai/gpt-4o-mini' : 'gpt-4o-mini')
   return { apiKey, base, model }
 }
 
@@ -75,7 +79,7 @@ export function GabayChatbot() {
             offTopic:
               'Sorry, I can only help with general health information. I cannot answer questions about the app, website, or product suggestions.',
             noKey:
-              'No API key found. Set VITE_OPENAI_API_KEY in FilCare/.env. For OpenRouter also set VITE_OPENAI_API_BASE=https://openrouter.ai/api/v1 and a valid VITE_OPENAI_MODEL.',
+              'No AI API key found. Add VITE_OPENAI_API_KEY or VITE_OPENROUTER_API_KEY in FilCare/.env, then restart the dev server.',
             unclear:
               'Sorry, I do not have a clear answer right now. Please consult a licensed doctor.',
             error:
@@ -100,7 +104,7 @@ export function GabayChatbot() {
             offTopic:
               'Pasensya, pangkalahatang impormasyon sa kalusugan lang ang masasagot ko. Hindi ako sumasagot tungkol sa app, website, o product suggestions.',
             noKey:
-              'Walang API key. Ilagay ang VITE_OPENAI_API_KEY sa FilCare/.env. Para sa OpenRouter, ilagay din ang VITE_OPENAI_API_BASE=https://openrouter.ai/api/v1 at valid na VITE_OPENAI_MODEL.',
+              'Walang AI API key. Ilagay ang VITE_OPENAI_API_KEY o VITE_OPENROUTER_API_KEY sa FilCare/.env, tapos i-restart ang dev server.',
             unclear:
               'Pasensya, wala akong malinaw na sagot ngayon. Kumonsulta sa lisensyadong doktor.',
             error:

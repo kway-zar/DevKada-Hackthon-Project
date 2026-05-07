@@ -186,26 +186,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       out center 25;
     `;
     
-    console.log('Sending Overpass query to:', OVERPASS_PROXY_URL);
-    console.log('Query body length:', query.length);
-
-    const tryFetch = async (url: string) => {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-        body: query,
-      });
-      console.log('Response status from', url, ':', response.status);
-      return response;
-    };
-
-    let response = await tryFetch(OVERPASS_PROXY_URL);
-
-    if (response.status === 404 && OVERPASS_PROXY_URL.startsWith('/')) {
-      console.warn('Local Overpass proxy not found, retrying direct Overpass endpoint');
-      response = await tryFetch(OVERPASS_DIRECT_URL);
-    }
-
+    const response = await fetch(OVERPASS_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: query,
+    });
     if (!response.ok) {
       throw new Error('Failed to fetch nearby facilities');
     }
@@ -222,7 +207,7 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
         const distanceKm = distanceInKm(lat, lon, latValue, lonValue);
         const amenityType = element.tags?.amenity === 'hospital' ? 'Hospital' : 'Clinic';
         return {
-          id: Number(`9${index + 1}`),
+          id: `osm-${element.type || 'node'}-${element.id || index + 1}`,
           name: element.tags?.name || `${amenityType} (Nearby)`,
           type: amenityType,
           distance: `${distanceKm.toFixed(1)} km`,
@@ -252,9 +237,30 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
     return mapped.length > 0 ? mapped : null;
   };
 
+  const useFallbackLocation = async (message: string) => {
+    const lat = 14.5995;
+    const lon = 120.9842;
+    setUserCoords({ lat, lon });
+    setUserLocation('Manila, Philippines');
+    setGpsError(message);
+    try {
+      const liveFacilities = await fetchNearbyHospitals(lat, lon);
+      if (liveFacilities && liveFacilities.length > 0) {
+        setFacilities(liveFacilities);
+        setGpsSource('live');
+        return;
+      }
+    } catch {
+      // Keep recommended facilities sorted against the fallback coordinates.
+    }
+    setGpsSource('mock');
+  };
+
   const handleUseGps = () => {
     if (!navigator.geolocation) {
-      setGpsError('Geolocation is not supported in this browser.');
+      setGpsLoading(true);
+      void useFallbackLocation('Geolocation is not supported in this browser. Showing facilities near Manila instead.')
+        .finally(() => setGpsLoading(false));
       return;
     }
     setGpsLoading(true);
@@ -272,9 +278,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
             setGpsSource('live');
           } else {
             setGpsSource('mock');
+            setGpsError('No nearby facilities found from GPS. Showing recommended facilities sorted by distance.');
           }
         } catch (_error) {
           setGpsSource('mock');
+          setGpsError('Live nearby facility search is unavailable. Showing recommended facilities sorted by distance.');
         } finally {
           setGpsLoading(false);
         }
@@ -282,9 +290,9 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       (error) => {
         setGpsLoading(false);
         if (error.code === error.PERMISSION_DENIED) {
-          setGpsError('Location permission denied. Allow GPS to see nearest hospitals.');
+          void useFallbackLocation('Location permission denied. Showing facilities near Manila instead.');
         } else {
-          setGpsError('Unable to get your current location.');
+          void useFallbackLocation('Unable to get your current location. Showing facilities near Manila instead.');
         }
       },
       { enableHighAccuracy: true, timeout: 10000 }
