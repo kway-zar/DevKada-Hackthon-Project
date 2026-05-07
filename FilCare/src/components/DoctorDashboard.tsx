@@ -8,11 +8,17 @@ import {
   Camera,
   LogOut,
   AlertCircle,
+  CalendarDays,
   CheckCircle2,
+  Download,
+  Droplets,
   FileText,
   CheckCheck,
+  IdCard,
+  Mail,
   MapPin,
   Phone,
+  Pill,
   Stethoscope,
   Edit3,
 } from 'lucide-react';
@@ -21,6 +27,14 @@ import { FilCareLogo } from './FilCareLogo';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
+import {
+  fetchPatientByQrValue,
+  fetchProviderFacility,
+  fetchQueueEntries,
+  updateQueueEntryStatus,
+  type QueueEntryDashboardRow,
+  type RegisteredPatientRow,
+} from '../lib/supabaseAuth';
 
 interface DoctorDashboardProps {
   onBack: () => void;
@@ -30,6 +44,9 @@ type Priority = 'P1' | 'P2' | 'P3';
 
 interface Patient {
   id: string;
+  queueEntryId?: string;
+  facilityId?: string;
+  queueDate?: string;
   name: string;
   age: number;
   gender: string;
@@ -52,96 +69,6 @@ interface Patient {
   chiefComplaint: string;
   arrivalTime: string;
   status: 'waiting' | 'in-progress' | 'completed';
-}
-
-interface SupabasePatientRow {
-  id: string;
-  patient_code?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-  date_of_birth?: string | null;
-  gender?: string | null;
-  phone?: string | null;
-  blood_type?: string | null;
-  allergies?: string | null;
-  medications?: string | null;
-  emergency_contact_name?: string | null;
-  emergency_contact_phone?: string | null;
-  qr_token?: string | null;
-  created_at?: string | null;
-}
-
-const DEFAULT_REST_API = 'https://mhahfguiqnaczorujmhd.supabase.co/rest/v1/'
-
-function getRestBase() {
-  return (
-    (import.meta.env.VITE_SUPABASE_REST_API as string | undefined)?.trim() ||
-    DEFAULT_REST_API
-  ).replace(/\/$/, '')
-}
-
-function getAnonKey() {
-  return (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || ''
-}
-
-function parseAllergies(value: string | null | undefined) {
-  if (!value) return []
-  try {
-    const parsed = JSON.parse(value)
-    if (Array.isArray(parsed)) return parsed.map((item) => String(item))
-  } catch {
-    return value.split(',').map((item) => item.trim()).filter(Boolean)
-  }
-  return []
-}
-
-function formatAge(dateOfBirth?: string | null) {
-  if (!dateOfBirth) return 0
-  const dob = new Date(dateOfBirth)
-  if (Number.isNaN(dob.getTime())) return 0
-  const today = new Date()
-  let age = today.getFullYear() - dob.getFullYear()
-  const monthDiff = today.getMonth() - dob.getMonth()
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age -= 1
-  return age
-}
-
-function formatDate(dateOfBirth?: string | null) {
-  if (!dateOfBirth) return 'N/A'
-  const date = new Date(dateOfBirth)
-  if (Number.isNaN(date.getTime())) return 'N/A'
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
-function toPatient(row: SupabasePatientRow, index: number): Patient {
-  const name = [row.first_name, row.last_name].filter(Boolean).join(' ') || row.patient_code || row.id
-  const age = formatAge(row.date_of_birth)
-
-  return {
-    id: row.patient_code || row.id,
-    name,
-    age,
-    gender: row.gender ? String(row.gender).replace(/^./, (c) => c.toUpperCase()) : 'Unknown',
-    priority: age >= 65 ? 'P1' : 'P3',
-    symptoms: [],
-    queueNumber: index + 1,
-    waitTime: 'Pending',
-    location: 'Reception',
-    phone: row.phone || 'N/A',
-    dob: formatDate(row.date_of_birth),
-    bloodType: row.blood_type || 'N/A',
-    allergies: parseAllergies(row.allergies),
-    currentVitals: {
-      bp: 'N/A',
-      hr: 'N/A',
-      temp: 'N/A',
-      spo2: 'N/A',
-    },
-    medicalHistory: [],
-    chiefComplaint: 'No complaint registered',
-    arrivalTime: row.created_at ? new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD',
-    status: 'waiting',
-  }
 }
 
 const PRIORITY_CONFIG: Record<
@@ -701,6 +628,9 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [scannedPayload, setScannedPayload] = useState<any>(null);
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [queueDate, setQueueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [providerFacility, setProviderFacility] = useState<{ id: string; name: string } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scannerIntervalRef = useRef<number | null>(null);
@@ -711,29 +641,142 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     setFetchError(null);
 
     try {
-      const restBase = getRestBase();
-      const anonKey = getAnonKey();
-      const response = await fetch(
-        `${restBase}/patients?select=id,patient_code,first_name,last_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at&order=created_at.desc`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: anonKey,
-            Authorization: `Bearer ${anonKey}`,
-          },
-        }
-      );
+      const formatArrivalTime = (checkInAt: string | null) => {
+        if (!checkInAt) return 'N/A';
+        const date = new Date(checkInAt);
+        if (Number.isNaN(date.getTime())) return 'N/A';
+        return date.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+      };
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Unable to load registered patients.');
+      const mapStatus = (status: string): Patient['status'] => {
+        if (status === 'completed') return 'completed';
+        if (status === 'called' || status === 'in-progress' || status === 'in_consultation') return 'in-progress';
+        return 'waiting';
+      };
+
+      const parseSymptoms = (symptomsText: string | null) => {
+        if (!symptomsText) return ['No symptoms recorded'];
+        return symptomsText
+          .split(/[,\n]/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .slice(0, 8);
+      };
+
+      const toQueuePatient = (row: ProviderQueueDashboardRow): Patient => {
+        const waitTime =
+          row.status === 'completed'
+            ? 'Completed'
+            : row.estimated_wait_minutes === null
+              ? 'Pending'
+              : row.estimated_wait_minutes <= 0
+                ? 'Now'
+                : `~${row.estimated_wait_minutes} min`;
+
+        return {
+          id: row.patient_code || row.id,
+          name: row.patient_name || 'Unknown Patient',
+          age: 0,
+          gender: row.gender ? String(row.gender).replace(/^./, (c) => c.toUpperCase()) : 'Unknown',
+          priority: row.priority,
+          symptoms: parseSymptoms(row.symptoms_text),
+          queueNumber: row.queue_number,
+          waitTime,
+          location: row.facility_name || 'Facility not set',
+          phone: 'N/A',
+          dob: 'N/A',
+          bloodType: row.blood_type || 'N/A',
+          allergies: [],
+          currentVitals: {
+            bp: 'N/A',
+            hr: 'N/A',
+            temp: 'N/A',
+            spo2: 'N/A',
+          },
+          medicalHistory: [],
+          chiefComplaint: row.recommendation || row.symptoms_text || 'No complaint registered',
+          arrivalTime: formatArrivalTime(row.check_in_at),
+          status: mapStatus(row.status),
+        };
+      };
+
+      const parseAllergies = (value: string | null | undefined) => {
+        if (!value) return [];
+        try {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) return parsed.map((item) => String(item));
+        } catch {
+          return value.split(',').map((item) => item.trim()).filter(Boolean);
+        }
+        return [];
+      };
+
+      const formatAge = (dateOfBirth?: string | null) => {
+        if (!dateOfBirth) return 0;
+        const dob = new Date(dateOfBirth);
+        if (Number.isNaN(dob.getTime())) return 0;
+        const today = new Date();
+        let age = today.getFullYear() - dob.getFullYear();
+        const monthDiff = today.getMonth() - dob.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age -= 1;
+        return age;
+      };
+
+      const formatDate = (dateOfBirth?: string | null) => {
+        if (!dateOfBirth) return 'N/A';
+        const date = new Date(dateOfBirth);
+        if (Number.isNaN(date.getTime())) return 'N/A';
+        return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      };
+
+      const toRegisteredPatient = (row: RegisteredPatientRow, index: number): Patient => {
+        const name =
+          row.full_name ||
+          [row.first_name, row.last_name].filter(Boolean).join(' ') ||
+          row.patient_code ||
+          row.id;
+        const age = formatAge(row.date_of_birth);
+
+        return {
+          id: row.patient_code || row.id,
+          name,
+          age,
+          gender: row.gender ? String(row.gender).replace(/^./, (c) => c.toUpperCase()) : 'Unknown',
+          priority: 'P3',
+          symptoms: ['No symptoms recorded'],
+          queueNumber: index + 1,
+          waitTime: 'Not queued',
+          location: 'Registration',
+          phone: row.phone || 'N/A',
+          dob: formatDate(row.date_of_birth),
+          bloodType: row.blood_type || 'N/A',
+          allergies: parseAllergies(row.allergies),
+          currentVitals: {
+            bp: 'N/A',
+            hr: 'N/A',
+            temp: 'N/A',
+            spo2: 'N/A',
+          },
+          medicalHistory: [],
+          chiefComplaint: 'Registered patient only. No queue triage found.',
+          arrivalTime: row.created_at
+            ? new Date(row.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
+            : 'TBD',
+          status: 'waiting',
+        };
+      };
+
+      const queueRows = await fetchProviderQueueDashboard();
+      if (queueRows.length > 0) {
+        setPatients(queueRows.map(toQueuePatient));
+        return;
       }
 
-      const data = (await response.json()) as SupabasePatientRow[];
-      setPatients(data.map(toPatient));
+      const registeredRows = await fetchRegisteredPatients();
+      setPatients(registeredRows.map(toRegisteredPatient));
     } catch (error) {
       setFetchError(
-        error instanceof Error ? error.message : 'Unable to load registered patients.'
+        error instanceof Error ? error.message : 'Unable to load queued patient triage.'
       );
     } finally {
       setLoadingPatients(false);
@@ -780,6 +823,102 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     return String(value);
   };
 
+  const initialsFromName = (name: unknown) => {
+    const formattedName = formatField(name);
+    if (formattedName === 'N/A') return 'PT';
+    return formattedName
+      .split(' ')
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+  };
+
+  const scannedRecordField = (
+    label: string,
+    value: unknown,
+    Icon: typeof QrCode,
+    options: { span?: boolean; emphasis?: boolean; alert?: boolean } = {}
+  ) => (
+    <div
+      className={`rounded-lg border bg-white px-4 py-3 ${
+        options.alert
+          ? 'border-red-100 bg-red-50'
+          : options.emphasis
+            ? 'border-blue-100 bg-blue-50'
+            : 'border-slate-200'
+      } ${options.span ? 'sm:col-span-2' : ''}`}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+            options.alert
+              ? 'bg-red-100 text-red-700'
+              : options.emphasis
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-slate-100 text-slate-600'
+          }`}
+        >
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
+          <p className={`mt-1 break-words text-sm ${options.alert ? 'font-semibold text-red-800' : 'font-medium text-slate-900'}`}>
+            {formatField(value)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  const normalizeScannedPayload = (payload: any) => {
+    const firstName = payload.firstName ?? payload.first_name ?? '';
+    const lastName = payload.lastName ?? payload.last_name ?? '';
+    const name = payload.name ?? payload.fullName ?? payload.full_name ?? [firstName, lastName].filter(Boolean).join(' ');
+    const streetAddress = payload.address ?? '';
+    const city = payload.city ?? '';
+    const zipCode = payload.zipCode ?? payload.zip_code ?? '';
+    const address = streetAddress && !String(streetAddress).includes(String(city))
+      ? [streetAddress, city, zipCode].filter(Boolean).join(', ')
+      : streetAddress;
+
+    return {
+      id: payload.patientCode ?? payload.patient_code ?? payload.id ?? '',
+      recordId: payload.id ?? '',
+      qrToken: payload.qrToken ?? payload.qr_token ?? '',
+      name,
+      firstName,
+      lastName,
+      dateOfBirth: payload.dateOfBirth ?? payload.date_of_birth ?? payload.dob ?? '',
+      bloodType: payload.bloodType ?? payload.blood_type ?? '',
+      gender: payload.gender ?? '',
+      phone: payload.phone ?? '',
+      email: payload.email ?? '',
+      address,
+      allergies: payload.allergies ?? '',
+      medications: payload.medications ?? '',
+      emergencyContact: payload.emergencyContact ?? payload.emergency_contact_name ?? '',
+      emergencyPhone: payload.emergencyPhone ?? payload.emergency_contact_phone ?? '',
+    };
+  };
+
+  const patientRowToScannedPayload = (row: RegisteredPatientRow) =>
+    normalizeScannedPayload({
+      id: row.id,
+      patient_code: row.patient_code,
+      full_name: row.full_name,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      date_of_birth: row.date_of_birth,
+      gender: row.gender,
+      phone: row.phone,
+      blood_type: row.blood_type,
+      allergies: row.allergies,
+      medications: row.medications,
+      emergency_contact_name: row.emergency_contact_name,
+      emergency_contact_phone: row.emergency_contact_phone,
+    });
+
   const downloadScannedRecord = () => {
     if (!scannedPayload) return;
 
@@ -823,16 +962,36 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     }
   };
 
-  const parseScannedData = (rawValue: string) => {
+  const parseScannedData = async (rawValue: string) => {
+    const trimmedValue = rawValue.trim();
+
     try {
-      const payload = JSON.parse(rawValue);
-      setScannedPayload(payload);
+      const payload = JSON.parse(trimmedValue);
+      setScannedPayload(normalizeScannedPayload(payload));
       setScannerStatus('QR code scanned successfully.');
       setScannerError('');
       setIsScannerOpen(false);
       stopScanner();
     } catch (_error) {
-      setScannerError('Invalid QR payload format. Expected patient data JSON.');
+      try {
+        const patient = await fetchPatientByQrValue(trimmedValue);
+        if (!patient) {
+          setScannerError('QR code scanned, but no matching patient record was found.');
+          return;
+        }
+
+        setScannedPayload(patientRowToScannedPayload(patient));
+        setScannerStatus('QR code scanned successfully.');
+        setScannerError('');
+        setIsScannerOpen(false);
+        stopScanner();
+      } catch (lookupError) {
+        setScannerError(
+          lookupError instanceof Error
+            ? lookupError.message
+            : 'Invalid QR payload format or patient lookup failed.'
+        );
+      }
     }
   };
 
@@ -859,7 +1018,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
       const results = await detector.detect(canvas);
       const rawValue = results[0]?.rawValue;
       if (rawValue) {
-        parseScannedData(rawValue);
+        await parseScannedData(rawValue);
         return true;
       }
     }
@@ -867,7 +1026,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     const imageData = context.getImageData(0, 0, width, height);
     const jsqrResult = jsQR(imageData.data, imageData.width, imageData.height);
     if (jsqrResult?.data) {
-      parseScannedData(jsqrResult.data);
+      await parseScannedData(jsqrResult.data);
       return true;
     }
 
@@ -994,7 +1153,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         {activeTab === 'queue' && (
           <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-sm text-gray-600">Showing registered patients from Supabase.</div>
+              <div className="text-sm text-gray-600">Showing queued patients from Supabase. Falls back to registered patients if no queue rows exist.</div>
               <button
                 onClick={fetchPatients}
                 className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
@@ -1027,7 +1186,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
             {/* Patient Cards */}
             {loadingPatients ? (
               <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center text-gray-600">
-                Loading registered patients...
+                Loading queued patients...
               </div>
             ) : fetchError ? (
               <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
@@ -1035,7 +1194,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
               </div>
             ) : filteredPatients.length === 0 ? (
               <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center text-gray-600">
-                No registered patients found. Please register patients first or refresh the page.
+                No queued or registered patients found. Complete pre-registration first, then refresh the page.
               </div>
             ) : (
               <div className="grid md:grid-cols-2 gap-4">
@@ -1064,77 +1223,67 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
               Open QR Scanner
             </button>
             {scannedPayload && (
-              <div className="mt-6 text-left bg-gradient-to-br from-slate-50 to-blue-50 border border-blue-200 rounded-xl p-5 sm:p-6 max-w-3xl mx-auto shadow-sm">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-                  <div>
-                    <h4 className="text-lg font-semibold text-blue-900">Patient Medical Record</h4>
-                    <p className="text-sm text-blue-700">Generated from scanned QR payload</p>
+              <div className="mt-8 max-w-4xl mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white text-left shadow-sm">
+                <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-lg font-bold text-white">
+                        {initialsFromName(scannedPayload.name)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase text-blue-700">Verified QR Record</p>
+                        <h4 className="mt-1 text-xl font-semibold text-slate-950">{formatField(scannedPayload.name)}</h4>
+                        <p className="mt-1 text-sm font-mono text-slate-500">{formatField(scannedPayload.id)}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={downloadScannedRecord}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                    >
+                      <Download className="h-4 w-4" />
+                      Download Record
+                    </button>
                   </div>
-                  <button
-                    onClick={downloadScannedRecord}
-                    className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Download Record
-                  </button>
                 </div>
 
-                <div className="rounded-lg border border-blue-100 bg-white p-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Patient ID</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.id)}</p>
+                <div className="p-5 sm:p-6">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    {scannedRecordField('Date of Birth', scannedPayload.dob || scannedPayload.dateOfBirth, CalendarDays, { emphasis: true })}
+                    {scannedRecordField('Blood Type', scannedPayload.bloodType, Droplets, { emphasis: true })}
+                    {scannedRecordField('Gender', scannedPayload.gender, IdCard, { emphasis: true })}
+                  </div>
+
+                  <div className="mt-6">
+                    <h5 className="mb-3 text-sm font-semibold uppercase text-slate-700">Contact Information</h5>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {scannedRecordField('Phone Number', scannedPayload.phone, Phone)}
+                      {scannedRecordField('Email Address', scannedPayload.email, Mail)}
+                      {scannedRecordField('Home Address', scannedPayload.address, MapPin, { span: true })}
                     </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Full Name</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.name)}</p>
+                  </div>
+
+                  <div className="mt-6">
+                    <h5 className="mb-3 text-sm font-semibold uppercase text-slate-700">Medical Notes</h5>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {scannedRecordField('Known Allergies', scannedPayload.allergies, AlertCircle, { alert: true })}
+                      {scannedRecordField('Current Medications', scannedPayload.medications, Pill)}
                     </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Date of Birth</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">
-                        {formatField(scannedPayload.dob || scannedPayload.dateOfBirth)}
-                      </p>
+                  </div>
+
+                  <div className="mt-6 rounded-lg border border-red-100 bg-red-50 p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-red-700" />
+                      <h5 className="text-sm font-semibold uppercase text-red-800">Emergency Contact</h5>
                     </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Blood Type</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.bloodType)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Gender</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.gender)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Phone Number</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.phone)}</p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Email Address</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.email)}</p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Home Address</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.address)}</p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Known Allergies</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{formatField(scannedPayload.allergies)}</p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Current Medications</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">
-                        {formatField(scannedPayload.medications)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Emergency Contact</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">
-                        {formatField(scannedPayload.emergencyContact)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Emergency Phone</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">
-                        {formatField(scannedPayload.emergencyPhone)}
-                      </p>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-red-700/80">Contact Name</p>
+                        <p className="mt-1 text-sm font-semibold text-red-950">{formatField(scannedPayload.emergencyContact)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-red-700/80">Contact Phone</p>
+                        <p className="mt-1 text-sm font-semibold text-red-950">{formatField(scannedPayload.emergencyPhone)}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
