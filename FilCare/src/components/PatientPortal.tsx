@@ -226,7 +226,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
           facility_id: facility.id,
           patient_id: patient.id,
           queue_date: new Date().toISOString().slice(0, 10),
-          queue_number: Math.floor(Date.now() % 90) + 10,
+          queue_number: 1,
           priority: triageData?.priority || 'P3',
           priority_label: triageData?.priorityLabel || 'Standard',
           status: 'waiting',

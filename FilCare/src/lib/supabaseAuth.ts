@@ -569,30 +569,7 @@ async function resolveFacility(facility: SelectableFacility, priority: 'P1' | 'P
     }
   }
 
-  const fallbackParams = new URLSearchParams({
-    select: 'id,name,facility_type,address_line1,city,state,postal_code,phone,emergency_hotline,rating',
-    active: 'eq.true',
-    order: 'rating.desc.nullslast,name.asc',
-    limit: '1',
-  })
-  if (priority === 'P1') {
-    fallbackParams.set('facility_type', 'eq.hospital')
-    fallbackParams.set('accepts_p1', 'eq.true')
-  } else if (priority === 'P2') {
-    fallbackParams.set('accepts_p2', 'eq.true')
-  } else {
-    fallbackParams.set('accepts_p3', 'eq.true')
-  }
-
-  const fallbackResponse = await fetch(`${restBase}/facilities?${fallbackParams.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  const fallbackPayload = await readJson<any>(fallbackResponse)
-  if (!fallbackResponse.ok || !Array.isArray(fallbackPayload) || !fallbackPayload[0]?.id) {
-    return createSelectableFacility(facility, priority)
-  }
-
-  return fallbackPayload[0] as QueueFacility
+  return createSelectableFacility(facility, priority)
 }
 
 export async function createTriageQueueEntry(input: {
@@ -745,6 +722,6 @@ export async function fetchPatientQueueStatus(queueEntryId: string): Promise<{
     queue,
     facility: row.facilities as QueueFacility,
     peopleAhead,
-    nowServing: Math.max(0, queue.queue_number - peopleAhead - 1),
+    nowServing: Math.max(1, queue.queue_number - peopleAhead),
   }
 }
