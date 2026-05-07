@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { MapPin, Navigation, Phone, Clock, Star, Building2 } from 'lucide-react';
+
+const OVERPASS_PROXY_URL = '/api/overpass';
 
 interface FacilityFinderProps {
   triageData: any;
@@ -8,9 +10,12 @@ interface FacilityFinderProps {
 
 export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderProps) {
   const [selectedFacility, setSelectedFacility] = useState<any>(null);
-  const [userLocation, setUserLocation] = useState('Boston, MA');
-
-  const facilities = [
+  const [userLocation, setUserLocation] = useState('Unknown location');
+  const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsError, setGpsError] = useState('');
+  const [gpsSource, setGpsSource] = useState<'mock' | 'live'>('mock');
+  const [facilities, setFacilities] = useState([
     {
       id: 1,
       name: 'Massachusetts General Hospital',
@@ -20,8 +25,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       rating: 4.8,
       address: '55 Fruit Street, Boston, MA 02114',
       phone: '(617) 726-2000',
+      secondaryPhone: '(617) 724-9720',
       emergencyHotline: '(617) 726-2911',
       capabilities: ['Emergency Room', 'Trauma Center', 'ICU', 'Surgery'],
+      lat: 42.3626,
+      lon: -71.0695,
       acceptsP1: true,
       acceptsP2: true,
       acceptsP3: true,
@@ -35,8 +43,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       rating: 4.7,
       address: '75 Francis Street, Boston, MA 02115',
       phone: '(617) 732-5500',
+      secondaryPhone: '(617) 278-0000',
       emergencyHotline: '(617) 732-5636',
       capabilities: ['Emergency Room', 'Cardiology', 'Oncology', 'Surgery'],
+      lat: 42.3354,
+      lon: -71.1062,
       acceptsP1: true,
       acceptsP2: true,
       acceptsP3: true,
@@ -50,8 +61,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       rating: 4.5,
       address: '1 Boston Medical Center Pl, Boston, MA 02118',
       phone: '(617) 638-8000',
+      secondaryPhone: '(617) 414-4075',
       emergencyHotline: '(617) 638-7575',
       capabilities: ['Emergency Room', 'Trauma Center', 'Pediatrics'],
+      lat: 42.3357,
+      lon: -71.0747,
       acceptsP1: true,
       acceptsP2: true,
       acceptsP3: true,
@@ -65,8 +79,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       rating: 4.6,
       address: '123 Main Street, Boston, MA 02116',
       phone: '(617) 555-0100',
-      emergencyHotline: null,
+      secondaryPhone: '(617) 555-0199',
+      emergencyHotline: '911',
       capabilities: ['Primary Care', 'Urgent Care', 'Lab Services'],
+      lat: 42.3491,
+      lon: -71.0812,
       acceptsP1: false,
       acceptsP2: true,
       acceptsP3: true,
@@ -80,25 +97,184 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       rating: 4.4,
       address: '789 Cambridge St, Cambridge, MA 02141',
       phone: '(617) 555-0200',
-      emergencyHotline: null,
+      secondaryPhone: '(617) 555-0299',
+      emergencyHotline: '911',
       capabilities: ['Urgent Care', 'X-Ray', 'Minor Procedures'],
+      lat: 42.3724,
+      lon: -71.0886,
       acceptsP1: false,
       acceptsP2: true,
       acceptsP3: true,
     },
-  ];
+  ]);
 
-  const filteredFacilities = facilities.filter(facility => {
-    if (!triageData) return true;
+  const distanceInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const earthRadius = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return earthRadius * c;
+  };
 
-    if (triageData.priority === 'P1') {
-      return facility.acceptsP1 && facility.type === 'Hospital';
-    } else if (triageData.priority === 'P2') {
-      return facility.acceptsP2;
-    } else {
-      return facility.acceptsP3;
+  const formatAddressFromTags = (tags: any) => {
+    const full = tags?.['addr:full'];
+    if (full) return full;
+    const parts = [
+      tags?.['addr:housenumber'],
+      tags?.['addr:street'],
+      tags?.['addr:city'],
+      tags?.['addr:state'],
+      tags?.['addr:postcode'],
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : 'Address not provided';
+  };
+
+  const deriveCapabilities = (tags: any, amenityType: 'Hospital' | 'Clinic') => {
+    const joined = `${tags?.healthcare || ''} ${tags?.['healthcare:speciality'] || ''} ${tags?.name || ''}`.toLowerCase();
+    if (amenityType === 'Hospital') {
+      const caps = ['Emergency Room', 'General Medicine'];
+      if (joined.includes('trauma')) caps.push('Trauma Center');
+      if (joined.includes('surgery')) caps.push('Surgery');
+      if (joined.includes('cardio')) caps.push('Cardiology');
+      return caps;
     }
-  }).sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+    const caps = ['Primary Care', 'Urgent Care'];
+    if (joined.includes('pedi')) caps.push('Pediatrics');
+    if (joined.includes('dental')) caps.push('Dental');
+    return caps;
+  };
+
+  const filteredFacilities = useMemo(() => {
+    const triageFilteredFacilities = facilities.filter((facility) => {
+      if (!triageData) return true;
+      if (triageData.priority === 'P1') return facility.acceptsP1 && facility.type === 'Hospital';
+      if (triageData.priority === 'P2') return facility.acceptsP2;
+      return facility.acceptsP3;
+    });
+
+    return [...triageFilteredFacilities]
+      .map((facility) => {
+        if (!userCoords) return facility;
+        const computedDistanceKm = distanceInKm(userCoords.lat, userCoords.lon, facility.lat, facility.lon);
+        return {
+          ...facility,
+          distance: `${computedDistanceKm.toFixed(1)} km`,
+          distanceValueKm: computedDistanceKm,
+        };
+      })
+      .sort((a: any, b: any) => {
+        if (userCoords) return (a.distanceValueKm ?? 9999) - (b.distanceValueKm ?? 9999);
+        return parseFloat(String(a.distance)) - parseFloat(String(b.distance));
+      });
+  }, [facilities, triageData, userCoords]);
+
+  const fetchNearbyHospitals = async (lat: number, lon: number) => {
+    const query = `
+      [out:json][timeout:25];
+      (
+        node(around:6000,${lat},${lon})[amenity~"hospital|clinic"];
+        way(around:6000,${lat},${lon})[amenity~"hospital|clinic"];
+      );
+      out center 25;
+    `;
+    
+    console.log('Sending Overpass query to:', OVERPASS_PROXY_URL);
+    console.log('Query body length:', query.length);
+    
+    const response = await fetch(OVERPASS_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: query,
+    });
+    console.log('Response status:', response.status);
+    if (!response.ok) {
+      throw new Error('Failed to fetch nearby facilities');
+    }
+    const data = await response.json();
+    const elements = Array.isArray(data?.elements) ? data.elements : [];
+    if (elements.length === 0) return null;
+
+    const mapped = elements
+      .map((element: any, index: number) => {
+        const latValue = element.lat ?? element.center?.lat;
+        const lonValue = element.lon ?? element.center?.lon;
+        if (typeof latValue !== 'number' || typeof lonValue !== 'number') return null;
+        const distanceKm = distanceInKm(lat, lon, latValue, lonValue);
+        const amenityType = element.tags?.amenity === 'hospital' ? 'Hospital' : 'Clinic';
+        return {
+          id: Number(`9${index + 1}`),
+          name: element.tags?.name || `${amenityType} (Nearby)`,
+          type: amenityType,
+          distance: `${distanceKm.toFixed(1)} km`,
+          distanceValueKm: distanceKm,
+          waitTime: 'Call facility',
+          rating: amenityType === 'Hospital' ? 4.6 : 4.4,
+          address: formatAddressFromTags(element.tags),
+          phone: element.tags?.phone || element.tags?.['contact:phone'] || 'N/A',
+          secondaryPhone: element.tags?.['contact:phone'] || null,
+          emergencyHotline:
+            element.tags?.['emergency:phone'] ||
+            (amenityType === 'Hospital'
+              ? element.tags?.phone || element.tags?.['contact:phone'] || '911'
+              : '911'),
+          capabilities: deriveCapabilities(element.tags, amenityType),
+          acceptsP1: amenityType === 'Hospital',
+          acceptsP2: true,
+          acceptsP3: true,
+          lat: latValue,
+          lon: lonValue,
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => a.distanceValueKm - b.distanceValueKm)
+      .slice(0, 10);
+
+    return mapped.length > 0 ? mapped : null;
+  };
+
+  const handleUseGps = () => {
+    if (!navigator.geolocation) {
+      setGpsError('Geolocation is not supported in this browser.');
+      return;
+    }
+    setGpsLoading(true);
+    setGpsError('');
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        setUserCoords({ lat, lon });
+        setUserLocation(`${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+        try {
+          const liveFacilities = await fetchNearbyHospitals(lat, lon);
+          if (liveFacilities && liveFacilities.length > 0) {
+            setFacilities(liveFacilities);
+            setGpsSource('live');
+          } else {
+            setGpsSource('mock');
+          }
+        } catch (_error) {
+          setGpsSource('mock');
+        } finally {
+          setGpsLoading(false);
+        }
+      },
+      (error) => {
+        setGpsLoading(false);
+        if (error.code === error.PERMISSION_DENIED) {
+          setGpsError('Location permission denied. Allow GPS to see nearest hospitals.');
+        } else {
+          setGpsError('Unable to get your current location.');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   const handleSelectFacility = (facility: any) => {
     setSelectedFacility(facility);
@@ -146,11 +322,21 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
             onChange={(e) => setUserLocation(e.target.value)}
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+          <button
+            onClick={handleUseGps}
+            disabled={gpsLoading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             <Navigation className="w-4 h-4" />
-            Use GPS
+            {gpsLoading ? 'Locating...' : 'Use GPS'}
           </button>
         </div>
+        {gpsError && <p className="mt-2 text-sm text-red-600">{gpsError}</p>}
+        <p className="mt-2 text-xs text-gray-500">
+          {gpsSource === 'live'
+            ? 'Showing GPS-based nearby hospital/clinic listings.'
+            : 'Showing recommended facilities. Tap Use GPS for local nearby listings.'}
+        </p>
       </div>
 
       <div className="space-y-3 sm:space-y-4">
@@ -199,6 +385,12 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
                   <Clock className="w-4 h-4 text-gray-400" />
                   <span className="text-sm">Est. Wait: {facility.waitTime}</span>
                 </div>
+                <div className="text-sm text-gray-700">
+                  <span className="font-medium">Primary:</span> {facility.phone || 'N/A'}
+                </div>
+                <div className="text-sm text-gray-700">
+                  <span className="font-medium">Emergency:</span> {facility.emergencyHotline || '911'}
+                </div>
               </div>
 
               <div className="mb-4">
@@ -223,19 +415,35 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
                   Select Facility
                 </button>
                 <a
-                  href={`tel:${facility.phone}`}
-                  className="sm:flex-none px-4 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 active:scale-98 flex items-center justify-center gap-2 transition-transform"
+                  href={facility.phone !== 'N/A' ? `tel:${facility.phone}` : '#'}
+                  onClick={(event) => {
+                    if (facility.phone === 'N/A') event.preventDefault();
+                  }}
+                  className={`sm:flex-none px-4 py-3 border-2 rounded-xl active:scale-98 flex items-center justify-center gap-2 transition-transform ${
+                    facility.phone === 'N/A'
+                      ? 'border-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
                 >
                   <Phone className="w-4 h-4" />
-                  <span className="sm:hidden">Call</span>
+                  <span>Call</span>
                 </a>
-                {facility.emergencyHotline && (
+                {facility.secondaryPhone && facility.secondaryPhone !== facility.phone && (
                   <a
-                    href={`tel:${facility.emergencyHotline}`}
+                    href={`tel:${facility.secondaryPhone}`}
+                    className="sm:flex-none px-4 py-3 border-2 border-indigo-300 text-indigo-700 rounded-xl hover:bg-indigo-50 active:scale-98 flex items-center justify-center gap-2 transition-transform"
+                  >
+                    <Phone className="w-4 h-4" />
+                    <span>Other Phone</span>
+                  </a>
+                )}
+                {(facility.emergencyHotline || '911') && (
+                  <a
+                    href={`tel:${facility.emergencyHotline || '911'}`}
                     className="sm:flex-none px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 active:scale-98 flex items-center justify-center gap-2 transition-transform"
                   >
                     <Phone className="w-4 h-4" />
-                    <span className="sm:hidden">Emergency</span>
+                    <span>Emergency</span>
                   </a>
                 )}
               </div>

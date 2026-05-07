@@ -11,6 +11,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
     lastName: '',
     dateOfBirth: '',
     gender: '',
+    religion: '',
     phone: '',
     email: '',
     address: '',
@@ -21,12 +22,40 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
     medications: '',
     emergencyContact: '',
     emergencyPhone: '',
+    guardianName: '',
+    guardianRelationship: '',
+    guardianPhone: '',
+    hasInsurance: '',
+    insuranceProvider: '',
   });
 
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [submitError, setSubmitError] = useState('');
+
+  const getAge = (dateOfBirth: string) => {
+    if (!dateOfBirth) return null;
+    const dob = new Date(dateOfBirth);
+    if (Number.isNaN(dob.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const monthDiff = today.getMonth() - dob.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+      age -= 1;
+    }
+    return age;
+  };
+
+  const age = getAge(formData.dateOfBirth);
+  const needsGuardianInfo = age !== null && (age < 18 || age >= 60);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setSubmitError('');
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+      insuranceProvider: name === 'hasInsurance' && value === 'no' ? '' : prev.insuranceProvider,
+    }));
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -84,6 +113,34 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
       console.error('Unexpected error:', err);
       alert('An unexpected error occurred. Please try again.');
     }
+    if (needsGuardianInfo) {
+      const guardianMissing =
+        !formData.guardianName.trim() ||
+        !formData.guardianRelationship.trim() ||
+        !formData.guardianPhone.trim();
+
+      if (guardianMissing) {
+        setSubmitError('Guardian/Parent details are required for minors and senior patients.');
+        return;
+      }
+    }
+
+    if (formData.hasInsurance === 'yes' && !formData.insuranceProvider.trim()) {
+      setSubmitError('Please provide your insurance provider.');
+      return;
+    }
+
+    const patientId = 'PT' + Date.now().toString().slice(-8);
+    const patientData = {
+      ...formData,
+      id: patientId,
+      name: `${formData.firstName} ${formData.lastName}`,
+      age,
+      needsGuardianInfo,
+      registeredAt: new Date().toISOString(),
+      medicalRecords: uploadedFiles,
+    };
+    onComplete(patientData);
   };
 
   return (
@@ -137,6 +194,11 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {age !== null && (
+                <p className="mt-2 text-xs text-gray-500">
+                  Age: {age} {needsGuardianInfo ? '(Guardian/Parent details required)' : ''}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -154,6 +216,31 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
                 <option value="female">Female</option>
                 <option value="other">Other</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Age
+              </label>
+              <input
+                type="text"
+                value={age ?? ''}
+                readOnly
+                placeholder="Calculated from date of birth"
+                className="w-full px-4 py-3 border border-gray-200 bg-gray-50 rounded-lg text-gray-700"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Religion
+              </label>
+              <input
+                type="text"
+                name="religion"
+                value={formData.religion}
+                onChange={handleChange}
+                placeholder="Enter religion (optional)"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -181,6 +268,44 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+        </div>
+
+        <div className="mb-8">
+          <h3 className="text-xl font-semibold text-gray-900 mb-4">Insurance Information</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Do you have healthcare insurance? *
+              </label>
+              <select
+                name="hasInsurance"
+                required
+                value={formData.hasInsurance}
+                onChange={handleChange}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+>
+                <option value="">Select option</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+            {formData.hasInsurance === 'yes' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Insurance Provider *
+                </label>
+                <input
+                  type="text"
+                  name="insuranceProvider"
+                  required={formData.hasInsurance === 'yes'}
+                  value={formData.insuranceProvider}
+                  onChange={handleChange}
+                  placeholder="e.g. PhilHealth, Maxicare, Medicard"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -315,6 +440,55 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
           </div>
         </div>
 
+        {needsGuardianInfo && (
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">Guardian / Parent Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Guardian / Parent Name *
+                </label>
+                <input
+                  type="text"
+                  name="guardianName"
+                  required={needsGuardianInfo}
+                  value={formData.guardianName}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Relationship *
+                </label>
+                <input
+                  type="text"
+                  name="guardianRelationship"
+                  required={needsGuardianInfo}
+                  value={formData.guardianRelationship}
+                  onChange={handleChange}
+                  placeholder="Parent, Child, Spouse, Sibling, etc."
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Guardian / Parent Phone *
+                </label>
+                <input
+                  type="tel"
+                  name="guardianPhone"
+                  required={needsGuardianInfo}
+                  value={formData.guardianPhone}
+                  onChange={handleChange}
+                  placeholder="(555) 123-4567"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="mb-8">
           <h3 className="text-xl font-semibold text-gray-900 mb-4">Upload Medical Records (Optional)</h3>
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
@@ -347,6 +521,12 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
             )}
           </div>
         </div>
+
+        {submitError && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {submitError}
+          </div>
+        )}
 
         <button
           type="submit"
