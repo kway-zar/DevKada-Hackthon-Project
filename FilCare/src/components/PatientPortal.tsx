@@ -6,7 +6,7 @@ import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
 import PatientProfile from './PatientProfile';
-import { loadAuthSession } from '../lib/supabaseAuth';
+import { createTriageQueueEntry, loadAuthSession } from '../lib/supabaseAuth';
 
 interface PatientPortalProps {
   patientData: any;
@@ -21,6 +21,9 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
   const [triageData, setTriageData] = useState<any>(null);
   const [registeredPatient, setRegisteredPatient] = useState<any>(patientData ?? null);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [queueSaveError, setQueueSaveError] = useState('');
+  const [selectedFacility, setSelectedFacility] = useState<any>(null);
+  const [queueEntry, setQueueEntry] = useState<any>(null);
 
   const menuItems = [
     { id: 'symptom' as PatientView, label: 'Symptoms', icon: Activity, shortLabel: 'Symptoms' },
@@ -197,6 +200,51 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       .finally(() => setRecordLoading(false));
   }, [activeView, registeredPatient, patientData]);
 
+  const handleFacilitySelect = async (facility: any) => {
+    setQueueSaveError('');
+    const patient = registeredPatient ?? patientData;
+
+    if (!patient?.id || !triageData) {
+      setActiveView('queue');
+      return;
+    }
+
+    try {
+      const result = await createTriageQueueEntry({
+        patientId: patient.id,
+        facility,
+        triageData,
+      });
+      setSelectedFacility(result.facility || facility);
+      setQueueEntry(result.queue);
+      setActiveView('queue');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save queue entry';
+      if (message.toLowerCase().includes('facilities') || message.toLowerCase().includes('row-level security')) {
+        const fallbackQueue = {
+          id: `local-${Date.now()}`,
+          facility_id: facility.id,
+          patient_id: patient.id,
+          queue_date: new Date().toISOString().slice(0, 10),
+          queue_number: Math.floor(Date.now() % 90) + 10,
+          priority: triageData?.priority || 'P3',
+          priority_label: triageData?.priorityLabel || 'Standard',
+          status: 'waiting',
+          check_in_at: new Date().toISOString(),
+          estimated_wait_minutes: Number.parseInt(String(facility.waitTime || triageData?.estimatedWait || '30'), 10) || 30,
+        };
+
+        setSelectedFacility(facility);
+        setQueueEntry(fallbackQueue);
+        setQueueSaveError('Facility was not saved to Supabase because of database policy, so this queue is shown locally. Ask an admin to allow facility inserts or seed real facilities.');
+        setActiveView('queue');
+        return;
+      }
+
+      setQueueSaveError(message);
+    }
+  };
+
   return (
     <div className="size-full flex flex-col bg-gray-50">
       {/* Mobile Header */}
@@ -230,6 +278,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
       {/* Main Content - with padding for bottom nav on mobile */}
       <div className="block md:hidden flex-1 overflow-auto pb-20 sm:pb-0">
+        {queueSaveError && (
+          <div className="mx-4 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {queueSaveError}
+          </div>
+        )}
         {activeView === 'symptom' && (
           <SymptomChecker
             onTriageComplete={(data) => {
@@ -255,13 +308,16 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'facilities' && (
           <FacilityFinder
             triageData={triageData}
-            onFacilitySelect={() => {
-              setActiveView('queue');
-            }}
+            onFacilitySelect={handleFacilitySelect}
           />
         )}
         {activeView === 'queue' && (
-          <PatientQueue patientData={patientData} triageData={triageData} />
+          <PatientQueue
+            patientData={registeredPatient ?? patientData}
+            triageData={triageData}
+            selectedFacility={selectedFacility}
+            queueEntry={queueEntry}
+          />
         )}
         {activeView === 'record' && (
           <PatientProfile patient={registeredPatient ?? patientData} onPatientUpdated={(data) => { setPatientData(data); setRegisteredPatient(data); }} />
@@ -330,6 +386,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
       {/* Desktop content wrapper */}
       <div className="hidden sm:block absolute left-64 right-0 top-[57px] bottom-0 overflow-auto">
+        {queueSaveError && (
+          <div className="mx-8 mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {queueSaveError}
+          </div>
+        )}
         {activeView === 'symptom' && (
           <SymptomChecker
             onTriageComplete={(data) => {
@@ -355,13 +416,16 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'facilities' && (
           <FacilityFinder
             triageData={triageData}
-            onFacilitySelect={() => {
-              setActiveView('queue');
-            }}
+            onFacilitySelect={handleFacilitySelect}
           />
         )}
         {activeView === 'queue' && (
-          <PatientQueue patientData={patientData} triageData={triageData} />
+          <PatientQueue
+            patientData={registeredPatient ?? patientData}
+            triageData={triageData}
+            selectedFacility={selectedFacility}
+            queueEntry={queueEntry}
+          />
         )}
         {activeView === 'record' && (
           <div className="p-4">

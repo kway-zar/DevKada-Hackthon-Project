@@ -100,8 +100,33 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
   }, [formData.dateOfBirth]);
 
   const showGuardianFields = age !== null && (age < 18 || age >= 60);
-  const patientCode = useMemo(() => patient?.patientCode || patient?.id || 'PT-UNKNOWN', [patient]);
-  const qrCodeValue = useMemo(() => patient?.qrToken || patient?.qr_token || '', [patient]);
+  const patientCode = patient?.patientCode || patient?.id || 'PT-UNKNOWN';
+  const qrToken = patient?.qrToken || patient?.qr_token || '';
+  const qrPayload = useMemo(
+    () => ({
+      type: 'filcare.patient',
+      id: patient?.id || '',
+      patientCode,
+      qrToken,
+      name: `${formData.firstName} ${formData.lastName}`.trim() || patient?.name || '',
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      dateOfBirth: formData.dateOfBirth,
+      gender: formData.gender,
+      phone: formData.phone,
+      email: formData.email,
+      address: [formData.address, formData.city, formData.zipCode].filter(Boolean).join(', '),
+      city: formData.city,
+      zipCode: formData.zipCode,
+      bloodType: formData.bloodType,
+      allergies: formData.allergies,
+      medications: formData.medications,
+      emergencyContact: formData.emergencyContact,
+      emergencyPhone: formData.emergencyPhone,
+    }),
+    [formData, patient?.id, patient?.name, patientCode, qrToken]
+  );
+  const qrCodeValue = JSON.stringify(qrPayload);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -335,7 +360,7 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
               </p>
 
               <div className="bg-white rounded-lg p-3 mb-4">
-                <p className="text-xs font-mono text-gray-600 break-all">{qrCodeValue}</p>
+                <p className="text-xs font-mono text-gray-600 break-all">{patientCode}</p>
               </div>
 
               <div className="space-y-2 text-sm">
