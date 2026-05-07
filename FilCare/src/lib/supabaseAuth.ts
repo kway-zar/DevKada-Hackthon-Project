@@ -214,6 +214,20 @@ async function readJson<T>(response: Response): Promise<T> {
   return JSON.parse(text) as T
 }
 
+export function getPhilippineDateString(reference = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(reference)
+
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+  return year && month && day ? `${year}-${month}-${day}` : reference.toISOString().slice(0, 10)
+}
+
 export function saveAuthSession(session: AuthSession) {
   window.localStorage.setItem('filcare-auth-session', JSON.stringify(session))
 }
@@ -346,7 +360,7 @@ export function isAuthSessionExpired(session: AuthSession) {
 export async function fetchProviderQueueDashboard(queueDate?: string): Promise<ProviderQueueDashboardRow[]> {
   const restBase = getRestApiBase()
   const session = loadAuthSession()
-  const dateValue = queueDate || new Date().toISOString().slice(0, 10)
+  const dateValue = queueDate || getPhilippineDateString()
   const token = isLikelyJwt(session?.accessToken) ? session?.accessToken : undefined
 
   const params = new URLSearchParams({
@@ -1010,7 +1024,7 @@ export async function createTriageQueueEntry(input: {
     headers: getAuthHeaders(),
     body: JSON.stringify({
       p_facility_id: facilityId,
-      p_queue_date: new Date().toISOString().slice(0, 10),
+      p_queue_date: getPhilippineDateString(),
     }),
   })
   const queueNumberPayload = await readJson<any>(queueNumberResponse)
@@ -1025,7 +1039,7 @@ export async function createTriageQueueEntry(input: {
       facility_id: facilityId,
       patient_id: input.patientId,
       triage_assessment_id: triageRow.id,
-      queue_date: new Date().toISOString().slice(0, 10),
+      queue_date: getPhilippineDateString(),
       queue_number: Number(queueNumberPayload),
       priority,
       priority_label: priorityLabel,

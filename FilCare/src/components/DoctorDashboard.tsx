@@ -50,6 +50,7 @@ import {
   type DoctorQueueAccess,
   type QueueFacility,
 } from '../lib/supabaseAuth';
+import { getPhilippineDateString } from '../lib/supabaseAuth';
 
 interface DoctorDashboardProps {
   onBack: () => void;
@@ -899,7 +900,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [scannedPayload, setScannedPayload] = useState<any>(null);
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [queueDate, setQueueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [queueDate, setQueueDate] = useState(() => getPhilippineDateString());
   const [doctorAccess, setDoctorAccess] = useState<DoctorQueueAccess | null>(null);
   const [doctorIdentity, setDoctorIdentity] = useState<DoctorIdentity | null>(null);
   const [facilityFilter, setFacilityFilter] = useState('all');

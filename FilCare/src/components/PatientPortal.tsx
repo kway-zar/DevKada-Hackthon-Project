@@ -6,7 +6,7 @@ import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
 import PatientProfile from './PatientProfile';
-import { createTriageQueueEntry, deleteQueueEntry, loadAuthSession, fetchPatientActiveQueue } from '../lib/supabaseAuth';
+import { createTriageQueueEntry, deleteQueueEntry, loadAuthSession, fetchPatientActiveQueue, getPhilippineDateString } from '../lib/supabaseAuth';
 
 interface PatientPortalProps {
   patientData: any;
@@ -258,7 +258,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
           id: `local-${Date.now()}`,
           facility_id: facility.id,
           patient_id: patient.id,
-          queue_date: new Date().toISOString().slice(0, 10),
+          queue_date: getPhilippineDateString(),
           queue_number: 1,
           priority: triageData?.priority || 'P3',
           priority_label: triageData?.priorityLabel || 'Standard',
