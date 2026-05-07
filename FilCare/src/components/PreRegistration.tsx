@@ -86,6 +86,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
     e.preventDefault();
     setSubmitError('');
 
+    const session = loadAuthSession();
     const patientId = crypto.randomUUID();
     const patientCode = `PT-${crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
     const qrToken = crypto.randomUUID();
@@ -116,7 +117,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
           medications: formData.medications || null,
           emergency_contact_name: formData.emergencyContact,
           emergency_contact_phone: formData.emergencyPhone,
-          user_id: null,
+          user_id: session?.userId || null,
         }),
       });
 
@@ -145,6 +146,33 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
         medicalRecords: uploadedFiles,
       };
       onComplete(completionData);
+
+      if (session?.userId) {
+        try {
+          const updateResponse = await fetch(
+            `${import.meta.env.VITE_SUPABASE_REST_API}accounts?id=eq.${encodeURIComponent(session.userId)}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+                Prefer: 'return=minimal',
+              },
+              body: JSON.stringify({
+                patient_id: patientId,
+              }),
+            }
+          );
+
+          if (!updateResponse.ok) {
+            const errorText = await updateResponse.text();
+            console.error('Failed to link account to patient:', errorText);
+          }
+        } catch (err) {
+          console.error('Unexpected error linking account to patient:', err);
+        }
+      }
     } catch (err) {
       console.error('Unexpected error:', err);
       setSubmitError('An unexpected error occurred. Please try again.');
@@ -197,7 +225,6 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
               <input
                 type="date"
                 name="dateOfBirth"
-                required
                 value={formData.dateOfBirth}
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
