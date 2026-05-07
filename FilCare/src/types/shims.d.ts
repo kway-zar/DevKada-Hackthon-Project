@@ -12,6 +12,8 @@ declare module 'lucide-react' {
   export const AlertTriangle: Icon
   export const ArrowLeft: Icon
   export const ArrowRight: Icon
+  export const BarChart: Icon
+  export const BarChart3: Icon
   export const Brain: Icon
   export const Building2: Icon
   export const Camera: Icon
@@ -28,12 +30,15 @@ declare module 'lucide-react' {
   export const CircleIcon: Icon
   export const ClipboardList: Icon
   export const Download: Icon
+  export const Droplet: Icon
+  export const Droplets: Icon
   export const Edit3: Icon
   export const Eye: Icon
   export const Filter: Icon
   export const FileText: Icon
   export const GripVerticalIcon: Icon
   export const Heart: Icon
+  export const IdCard: Icon
   export const Mail: Icon
   export const Loader2: Icon
   export const LogOut: Icon
@@ -47,8 +52,10 @@ declare module 'lucide-react' {
   export const MapPin: Icon
   export const PanelLeftIcon: Icon
   export const Phone: Icon
+  export const Pill: Icon
   export const Plus: Icon
   export const QrCode: Icon
+  export const RefreshCw: Icon
   export const Search: Icon
   export const SearchIcon: Icon
   export const Send: Icon
@@ -56,15 +63,20 @@ declare module 'lucide-react' {
   export const Share2: Icon
   export const Star: Icon
   export const Stethoscope: Icon
+  export const Tablet: Icon
+  export const Timer: Icon
   export const TrendingUp: Icon
   export const Upload: Icon
   export const User: Icon
+  export const UserCheck: Icon
   export const UserCircle: Icon
   export const Users: Icon
   export const CheckCircle2: Icon
   export const X: Icon
+  export const XCircle: Icon
   export const XIcon: Icon
   export const Calendar: Icon
+  export const CalendarDays: Icon
   export const Clock: Icon
 }
 
@@ -72,4 +84,3 @@ declare module 'react-day-picker' {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   export const DayPicker: any
 }
-

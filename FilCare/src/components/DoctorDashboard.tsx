@@ -34,14 +34,16 @@ import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import {
   fetchPatientByQrValue,
-  fetchProviderFacility,
   fetchProviderQueueDashboard,
   fetchQueueEntries,
   deleteQueueEntry,
   updatePatientVitals,
+  resolveDoctorQueueAccess,
   type ProviderQueueDashboardRow,
   type QueueEntryDashboardRow,
   type RegisteredPatientRow,
+  type DoctorQueueAccess,
+  type QueueFacility,
 } from '../lib/supabaseAuth';
 
 interface DoctorDashboardProps {
@@ -343,7 +345,7 @@ function MarkCompleteModal({
 }: {
   patient: Patient;
   onClose: () => void;
-  onConfirm: (id: string) => void;
+  onConfirm: (queueEntryId: string) => void;
 }) {
   const cfg = PRIORITY_CONFIG[patient.priority];
   const PriorityIcon = cfg.icon;
@@ -386,7 +388,7 @@ function MarkCompleteModal({
             queue entry will be removed from Supabase.
           </p>
           <p className="text-xs text-muted-foreground">
-            This will delete the active queue row and remove them from the active patient list.
+            This will delete queue entry <span className="font-mono">{patient.queueEntryId || patient.id}</span> and remove them from the active patient list.
           </p>
         </div>
 
@@ -397,7 +399,7 @@ function MarkCompleteModal({
           <Button
             className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white"
             onClick={() => {
-              onConfirm(patient.id);
+              onConfirm(patient.queueEntryId || patient.id);
               onClose();
             }}
           >
@@ -664,7 +666,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [queueDate, setQueueDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [providerFacility, setProviderFacility] = useState<{ id: string; name: string } | null>(null);
+  const [doctorAccess, setDoctorAccess] = useState<DoctorQueueAccess | null>(null);
   const [facilityFilter, setFacilityFilter] = useState('all');
   const [actionError, setActionError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -677,8 +679,8 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     setFetchError(null);
 
     try {
-      const assignedFacility = await fetchProviderFacility();
-      setProviderFacility(assignedFacility);
+      const access = await resolveDoctorQueueAccess();
+      setDoctorAccess(access);
 
       const formatArrivalTime = (checkInAt: string | null) => {
         if (!checkInAt) return 'N/A';
@@ -812,14 +814,31 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         };
       };
 
+      const facilityId = access.scope === 'facility'
+        ? access.facilityId
+        : facilityFilter !== 'all'
+          ? facilityFilter
+          : null;
+      const selectedFacility = facilityId
+        ? access.availableFacilities.find((facility) => facility.id === facilityId) || null
+        : null;
+
       try {
         const queueRows = await fetchQueueEntries({
           queueDate,
+          ...(facilityId ? { facilityId } : {}),
         });
         setPatients(queueRows.map(toQueuePatient));
       } catch (_directQueueError) {
         const viewRows = await fetchProviderQueueDashboard(queueDate);
-        setPatients(viewRows.map(toViewPatient));
+        const filteredRows =
+          access.scope === 'facility' && selectedFacility
+            ? viewRows.filter((row) => row.facility_name === selectedFacility.name)
+            : facilityId
+              ? viewRows.filter((row) => row.facility_name === selectedFacility?.name)
+              : viewRows;
+
+        setPatients(filteredRows.map(toViewPatient));
       }
     } catch (error) {
       setFetchError(
@@ -828,7 +847,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     } finally {
       setLoadingPatients(false);
     }
-  }, [queueDate]);
+  }, [queueDate, facilityFilter]);
 
   useEffect(() => {
     fetchPatients();
@@ -837,14 +856,31 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [fetchPatients]);
 
+  useEffect(() => {
+    if (doctorAccess?.scope === 'facility' && doctorAccess.facilityId) {
+      setFacilityFilter(doctorAccess.facilityId);
+    } else if (doctorAccess?.scope === 'all' && facilityFilter !== 'all') {
+      const stillAvailable = doctorAccess.availableFacilities.some((facility) => facility.id === facilityFilter);
+      if (!stillAvailable) {
+        setFacilityFilter('all');
+      }
+    }
+  }, [doctorAccess, facilityFilter]);
+
   const handleAction = (type: ModalType, patient: Patient) => {
     setSelectedPatient(patient);
     setActiveModal(type);
   };
 
-  const handleMarkComplete = async (id: string) => {
-    const patient = patients.find((p) => p.id === id);
-    if (!patient?.queueEntryId) {
+  const handleMarkComplete = async (queueEntryId: string) => {
+    const patient = patients.find((p) => p.queueEntryId === queueEntryId);
+    if (!patient) {
+      setActionError('Could not find that queue entry in the current list.');
+      closeModal();
+      return;
+    }
+
+    if (!patient.queueEntryId) {
       setActionError('This patient does not have a queue entry to update.');
       closeModal();
       return;
@@ -853,10 +889,10 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     setActionError(null);
     try {
       await deleteQueueEntry(patient.queueEntryId);
-      setRemovingPatientIds((prev) => [...prev, id]);
+      setRemovingPatientIds((prev) => [...prev, patient.id]);
       window.setTimeout(() => {
-        setPatients((prev) => prev.filter((p) => p.id !== id));
-        setRemovingPatientIds((prev) => prev.filter((patientId) => patientId !== id));
+        setPatients((prev) => prev.filter((p) => p.queueEntryId !== queueEntryId));
+        setRemovingPatientIds((prev) => prev.filter((patientId) => patientId !== patient.id));
       }, 280);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Unable to delete queue entry.');
@@ -1171,16 +1207,27 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     };
   }, [isScannerOpen]);
 
+  const queueFacilities: QueueFacility[] = doctorAccess?.availableFacilities ?? [];
+  const selectedFacility = facilityFilter === 'all'
+    ? null
+    : queueFacilities.find((facility) => facility.id === facilityFilter) || null;
+  const selectedFacilityName = selectedFacility?.name || doctorAccess?.facilityName || null;
+  const isFacilityLocked = doctorAccess?.scope === 'facility';
+  const queueScopeLabel = facilityFilter === 'all'
+    ? (isFacilityLocked ? selectedFacilityName || doctorAccess?.facilityLabel || 'Assigned facility' : 'All Facilities')
+    : selectedFacilityName || doctorAccess?.facilityLabel || 'Selected facility';
+
   const filteredPatients = patients
     .filter((p: Patient) =>
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.queueNumber.toString().includes(searchQuery)
     )
-    .filter((p: Patient) => facilityFilter === 'all' || p.location === facilityFilter)
+    .filter((p: Patient) => {
+      if (facilityFilter === 'all') return true;
+      return p.facilityId === facilityFilter || p.location === selectedFacilityName || p.location === facilityFilter;
+    })
     .filter((p: Patient) => (activeTab === 'queue' ? p.status !== 'completed' : true));
-
-  const queueFacilities = Array.from(new Set(patients.map((p) => p.location).filter(Boolean))).sort();
 
   const totalQueueEntries = patients.length;
   const activeQueueEntries = patients.filter((p) => p.status !== 'completed').length;
@@ -1303,10 +1350,10 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                 <div>
                   <p className="text-xs font-semibold uppercase text-blue-700">Queue Management</p>
                   <h2 className="mt-1 text-xl font-semibold text-slate-950">
-                    {facilityFilter === 'all' ? 'All Facilities' : facilityFilter}
+                    {queueScopeLabel}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Showing queue entries for the selected date. Assigned facility: {providerFacility?.name || 'not set'}.
+                    Showing queue entries for the selected date. Access is scoped by the doctor&apos;s email domain.
                   </p>
                 </div>
 
@@ -1325,13 +1372,25 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                     <select
                       value={facilityFilter}
                       onChange={(event) => setFacilityFilter(event.target.value)}
+                      disabled={isFacilityLocked}
                       className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="all">All Facilities</option>
-                      {queueFacilities.map((facility) => (
-                        <option key={facility} value={facility}>{facility}</option>
-                      ))}
+                      {isFacilityLocked ? (
+                        <option value={doctorAccess?.facilityId || 'all'}>{selectedFacilityName || doctorAccess?.facilityLabel || 'Assigned Facility'}</option>
+                      ) : (
+                        <>
+                          <option value="all">All Facilities</option>
+                          {queueFacilities.map((facility) => (
+                            <option key={facility.id} value={facility.id}>{facility.name}</option>
+                          ))}
+                        </>
+                      )}
                     </select>
+                    {isFacilityLocked && (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        This account is locked to {selectedFacilityName || doctorAccess?.facilityLabel || 'its assigned facility'}.
+                      </p>
+                    )}
                   </label>
                   <button
                     onClick={fetchPatients}
@@ -1396,7 +1455,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
             ) : filteredPatients.length === 0 ? (
               <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center text-gray-600">
                 No queue entries found for {queueDate}
-                {facilityFilter !== 'all' ? ` at ${facilityFilter}` : ''}. Complete symptom triage and facility selection first, then refresh.
+                {facilityFilter !== 'all' ? ` at ${queueScopeLabel}` : ''}. Complete symptom triage and refresh.
               </div>
             ) : (
               <div className="grid md:grid-cols-2 gap-4">
@@ -1501,7 +1560,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                 <div>
                   <p className="text-xs font-semibold uppercase text-blue-700">Operational Analytics</p>
                   <h2 className="mt-1 text-2xl font-semibold text-slate-950">
-                    {providerFacility?.name || 'Queue Network'} · {queueDate}
+                    {queueScopeLabel} · {queueDate}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
                     Metrics are calculated from the currently loaded queue entries.
