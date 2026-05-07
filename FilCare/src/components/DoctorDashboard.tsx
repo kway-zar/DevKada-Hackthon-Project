@@ -129,6 +129,14 @@ function VitalChip({ label, value }: { label: string; value: string }) {
 function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (type: ModalType, patient: Patient) => void }) {
   const cfg = PRIORITY_CONFIG[patient.priority];
   const PriorityIcon = cfg.icon;
+  const vitalEntries = [
+    { label: 'BP', value: patient.currentVitals.bp },
+    { label: 'HR', value: patient.currentVitals.hr },
+    { label: 'Temp', value: patient.currentVitals.temp },
+    { label: 'SpO₂', value: patient.currentVitals.spo2 },
+  ];
+  const hasVitals = vitalEntries.some((vital) => vital.value && vital.value !== 'N/A');
+
   return (
     <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
       <DialogHeader>
@@ -199,14 +207,21 @@ function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (t
               Edit
             </Button>
           </div>
-          <div className="grid grid-cols-4 gap-2">
-            <VitalChip label="BP" value={patient.currentVitals.bp} />
-            <VitalChip label="HR" value={patient.currentVitals.hr} />
-            <VitalChip label="Temp" value={patient.currentVitals.temp} />
-            <VitalChip label="SpO₂" value={patient.currentVitals.spo2} />
-          </div>
-          {patient.vitalsTakenAt && (
-            <p className="mt-2 text-xs text-muted-foreground">Taken {new Date(patient.vitalsTakenAt).toLocaleString()}</p>
+          {hasVitals ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {vitalEntries.map((vital) => (
+                  <VitalChip key={vital.label} label={vital.label} value={vital.value || 'N/A'} />
+                ))}
+              </div>
+              {patient.vitalsTakenAt && (
+                <p className="mt-2 text-xs text-muted-foreground">Taken {new Date(patient.vitalsTakenAt).toLocaleString()}</p>
+              )}
+            </>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              No vitals recorded yet.
+            </div>
           )}
         </div>
 

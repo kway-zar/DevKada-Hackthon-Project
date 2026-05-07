@@ -502,7 +502,11 @@ export async function updateQueueEntryVitals(input: {
     body.vitals_taken_by = input.vitals.vitals_taken_by
   }
 
-  const url = `${restApiBase}queue_entries?id=eq.${encodeURIComponent(input.queueEntryId)}`
+  const params = new URLSearchParams({
+    id: `eq.${input.queueEntryId}`,
+    select: 'id,blood_pressure,heart_rate,temperature,oxygen_saturation,vitals_taken_at',
+  })
+  const url = `${restApiBase}queue_entries?${params.toString()}`
   console.info('[FilCare] Saving queue entry vitals via REST PATCH', {
     queueEntryId: input.queueEntryId,
     url,
@@ -515,17 +519,25 @@ export async function updateQueueEntryVitals(input: {
       'Content-Type': 'application/json',
       apikey: anonKey,
       Authorization: `Bearer ${accessToken || anonKey}`,
-      Prefer: 'return=minimal',
+      Prefer: 'return=representation',
     },
     body: JSON.stringify(body),
   })
+  const responseText = await response.text()
+
+  console.info('[FilCare] Queue entry vitals PATCH response', {
+    queueEntryId: input.queueEntryId,
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    body: responseText,
+  })
 
   if (!response.ok) {
-    const errorText = await response.text()
-    let errorData: any = errorText
+    let errorData: any = responseText
 
     try {
-      errorData = errorText ? JSON.parse(errorText) : errorText
+      errorData = responseText ? JSON.parse(responseText) : responseText
     } catch {
       // Keep the raw text when the response is not JSON.
     }
@@ -534,7 +546,21 @@ export async function updateQueueEntryVitals(input: {
     throw new Error(errorData?.message || errorData?.hint || 'Failed to update queue entry vitals')
   }
 
-  return body
+  let updatedRows: any = []
+
+  try {
+    updatedRows = responseText ? JSON.parse(responseText) : []
+  } catch {
+    updatedRows = []
+  }
+
+  if (!Array.isArray(updatedRows) || !updatedRows[0]) {
+    throw new Error(
+      `Supabase accepted the vitals PATCH but returned no updated queue_entries row for id ${input.queueEntryId}. This usually means the hosted database RLS/update policy is blocking anon updates for queue_entries or the id does not match a visible row.`
+    )
+  }
+
+  return updatedRows[0]
 }
 
 function normalizeVitalValue(value: string) {
