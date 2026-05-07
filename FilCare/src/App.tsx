@@ -7,6 +7,8 @@ import { AuthModal } from './components/AuthModal.tsx'
 import { clearAuthSession, isAuthSessionExpired, loadAuthSession, saveAuthSession, type AuthRole, type AuthSession } from './lib/supabaseAuth.ts'
 import { useEffect, useState, type ReactNode } from 'react'
 import { DoctorDashboard } from './components/DoctorDashboard.tsx'
+import { Provider } from '@radix-ui/react-tooltip'
+import { ProviderDashboard } from './components/ProviderDashboard.tsx'
 
 function AuthenticatedRoute({
   session,
@@ -63,11 +65,18 @@ function AppShell() {
   }
 
   const handleAuthSuccess = (session: AuthSession) => {
-  saveAuthSession(session);
-  setSession(session);
-  setAuthModalOpen(false);
-  navigate(redirectTo);
-};
+    saveAuthSession(session);
+    setSession(session);
+    setAuthModalOpen(false);
+    navigate(redirectTo);
+  };
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setSession(null);
+    setAuthModalOpen(true);
+    navigate('/');
+  };
 
   const landingPage = (
     <LandingPage
@@ -94,9 +103,7 @@ function AppShell() {
                   setPatientData={function (): void {
                     throw new Error('Function not implemented.')
                   }}
-                  onBack={function (): void {
-                    navigate('/')
-                  }}
+                  onBack={handleLogout}
                 />
               </AuthenticatedRoute>
             }
@@ -109,11 +116,7 @@ function AppShell() {
                 requiredRole="provider"
                 onRequireAuth={handleRequireAuth}
               >
-                <DoctorDashboard
-                  onBack={function (): void {
-                    navigate('/')
-                  }}
-                />
+                <ProviderDashboard/>
               </AuthenticatedRoute>
             }
           />

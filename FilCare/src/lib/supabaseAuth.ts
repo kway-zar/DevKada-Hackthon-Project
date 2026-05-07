@@ -69,6 +69,14 @@ export function clearAuthSession() {
   window.localStorage.removeItem('filcare-auth-session')
 }
 
+export function logout(): void {
+  // Clear JWT token and session from storage
+  clearAuthSession()
+  // Clear any other auth-related storage if needed
+  window.localStorage.removeItem('filcare-jwt')
+  window.localStorage.removeItem('filcare-user-data')
+}
+
 export async function signInWithPassword(email: string, password: string): Promise<AuthSession> {
   const restBase = getRestApiBase();
   
