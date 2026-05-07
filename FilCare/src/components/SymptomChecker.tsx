@@ -36,12 +36,20 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
     }
   };
 
+  const normalizeStringField = (value: unknown, fallback: string) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : fallback;
+    }
+    return fallback;
+  };
+
   const fetchGabayTriage = async (symptomsText: string) => {
     const { apiKey, base, model } = getGabayApiConfig();
     if (!apiKey) return null;
 
     try {
-      const prompt = `You are Gabay, a health education assistant. Based on the following patient information, provide a JSON object only with the fields: priority, priorityLabel, priorityColor, recommendation, estimatedWait, analysis, matchedSignals, riskScore, symptoms. Do not include any additional explanation outside the JSON object.\n\nPatient information:\n${symptomsText}`;
+      const prompt = `You are Gabay, a health education assistant. Based on the following patient information, provide a JSON object only with the fields: priority, priorityLabel, priorityColor, recommendation, estimatedWait, analysis, matchedSignals, riskScore, symptoms. Use the exact field names. If a field cannot be determined, return an empty string or an empty array (for matchedSignals). Do not include any additional explanation outside the JSON object.\n\nPatient information:\n${symptomsText}`;
 
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
@@ -97,15 +105,17 @@ Severity: ${severity || 'unknown'}`;
 
     const apiResult = await fetchGabayTriage(symptomDetails);
 
-    if (apiResult && apiResult.priority) {
+    if (apiResult && typeof apiResult.priority === 'string') {
       const normalized = {
-        priority: apiResult.priority || 'P3',
-        priorityLabel: apiResult.priorityLabel || 'Non-Urgent',
-        priorityColor: apiResult.priorityColor || 'green',
-        recommendation:
-          apiResult.recommendation || 'Telemedicine consultation or next-day clinic appointment',
-        estimatedWait: apiResult.estimatedWait || '24-48 hours',
-        symptoms: apiResult.symptoms || allSymptoms,
+        priority: normalizeStringField(apiResult.priority, 'P3'),
+        priorityLabel: normalizeStringField(apiResult.priorityLabel, 'Non-Urgent'),
+        priorityColor: normalizeStringField(apiResult.priorityColor, 'green'),
+        recommendation: normalizeStringField(
+          apiResult.recommendation,
+          'Telemedicine consultation or next-day clinic appointment'
+        ),
+        estimatedWait: normalizeStringField(apiResult.estimatedWait, '24-48 hours'),
+        symptoms: normalizeStringField(apiResult.symptoms, allSymptoms),
         duration,
         severity,
         riskScore: typeof apiResult.riskScore === 'number' ? apiResult.riskScore : 0,
@@ -114,7 +124,10 @@ Severity: ${severity || 'unknown'}`;
           : typeof apiResult.matchedSignals === 'string'
           ? apiResult.matchedSignals.split(',').map((s: string) => s.trim()).filter(Boolean)
           : [],
-        analysis: apiResult.analysis || generateAIAnalysis(apiResult.priority || 'P3', []),
+        analysis: normalizeStringField(
+          apiResult.analysis,
+          generateAIAnalysis(apiResult.priority, [])
+        ),
       };
 
       setTriageResult(normalized);
@@ -255,7 +268,7 @@ Severity: ${severity || 'unknown'}`;
 
           <div className="bg-white rounded-xl p-6 mb-6">
             <h3 className="font-semibold text-gray-900 mb-3">Recommendation</h3>
-            <p className={`${colors.text} font-medium`}>{triageResult.recommendation}</p>
+            <p className="text-gray-700 font-medium">{triageResult.recommendation}</p>
           </div>
 
           <div className="bg-white rounded-xl p-6 mb-6">

@@ -7,6 +7,7 @@ import { AuthModal } from './components/AuthModal.tsx'
 import { clearAuthSession, isAuthSessionExpired, loadAuthSession, saveAuthSession, type AuthRole, type AuthSession } from './lib/supabaseAuth.ts'
 import { useEffect, useState, type ReactNode } from 'react'
 import { DoctorDashboard } from './components/DoctorDashboard.tsx'
+import PatientDetails from './components/Provider-patientDetails.tsx'
 
 function AuthenticatedRoute({
   session,
@@ -114,6 +115,18 @@ function AppShell() {
                     navigate('/')
                   }}
                 />
+              </AuthenticatedRoute>
+            }
+          />
+          <Route
+            path="/provider/patient/:id"
+            element={
+              <AuthenticatedRoute
+                session={session}
+                requiredRole="provider"
+                onRequireAuth={handleRequireAuth}
+              >
+                <PatientDetails />
               </AuthenticatedRoute>
             }
           />
