@@ -50,11 +50,13 @@ export interface QueueEntryDashboardRow {
     phone?: string | null
     date_of_birth?: string | null
     allergies?: string | null
-    bp?: string | null
-    hr?: string | null
-    temp?: string | null
-    spo2?: string | null
   } | null
+  blood_pressure?: string | null
+  heart_rate?: string | null
+  temperature?: string | null
+  oxygen_saturation?: string | null
+  vitals_taken_at?: string | null
+  vitals_taken_by?: string | null
   facilities?: {
     name?: string | null
   } | null
@@ -125,10 +127,6 @@ export interface RegisteredPatientRow {
   medications?: string | null
   emergency_contact_name?: string | null
   emergency_contact_phone?: string | null
-  bp?: string | null
-  hr?: string | null
-  temp?: string | null
-  spo2?: string | null
   created_at?: string | null
 }
 
@@ -339,27 +337,6 @@ export async function fetchProviderFacility(): Promise<ProviderFacility | null> 
   const session = loadAuthSession()
   if (!session?.userId) return null
 
-  const accountParams = new URLSearchParams({
-    select: 'provider_id,providers!accounts_provider_id_fkey(facility_id,facilities(name))',
-    id: `eq.${session.userId}`,
-    limit: '1',
-  })
-  const accountResponse = await fetch(`${restBase}/accounts?${accountParams.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  const accountPayload = await readJson<any>(accountResponse)
-
-  if (accountResponse.ok) {
-    const account = Array.isArray(accountPayload) ? accountPayload[0] : accountPayload
-    const facilityId = account?.providers?.facility_id
-    if (facilityId) {
-      return {
-        id: facilityId,
-        name: account?.providers?.facilities?.name || 'Assigned facility',
-      }
-    }
-  }
-
   const providerParams = new URLSearchParams({
     select: 'facility_id,facilities(name)',
     user_id: `eq.${session.userId}`,
@@ -370,13 +347,47 @@ export async function fetchProviderFacility(): Promise<ProviderFacility | null> 
   })
   const providerPayload = await readJson<any>(providerResponse)
 
-  if (!providerResponse.ok) return null
-  const provider = Array.isArray(providerPayload) ? providerPayload[0] : providerPayload
-  if (!provider?.facility_id) return null
+  if (providerResponse.ok) {
+    const provider = Array.isArray(providerPayload) ? providerPayload[0] : providerPayload
+    if (provider?.facility_id) {
+      return {
+        id: provider.facility_id,
+        name: provider?.facilities?.name || 'Assigned facility',
+      }
+    }
+  }
+
+  const accountParams = new URLSearchParams({
+    select: 'provider_id',
+    id: `eq.${session.userId}`,
+    limit: '1',
+  })
+  const accountResponse = await fetch(`${restBase}/accounts?${accountParams.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const accountPayload = await readJson<any>(accountResponse)
+
+  if (!accountResponse.ok) return null
+  const account = Array.isArray(accountPayload) ? accountPayload[0] : accountPayload
+  if (!account?.provider_id) return null
+
+  const accountProviderParams = new URLSearchParams({
+    select: 'facility_id,facilities(name)',
+    id: `eq.${account.provider_id}`,
+    limit: '1',
+  })
+  const accountProviderResponse = await fetch(`${restBase}/providers?${accountProviderParams.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const accountProviderPayload = await readJson<any>(accountProviderResponse)
+
+  if (!accountProviderResponse.ok) return null
+  const accountProvider = Array.isArray(accountProviderPayload) ? accountProviderPayload[0] : accountProviderPayload
+  if (!accountProvider?.facility_id) return null
 
   return {
-    id: provider.facility_id,
-    name: provider?.facilities?.name || 'Assigned facility',
+    id: accountProvider.facility_id,
+    name: accountProvider?.facilities?.name || 'Assigned facility',
   }
 }
 
@@ -387,7 +398,7 @@ export async function fetchQueueEntries(input: {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
     select:
-      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies,bp,hr,temp,spo2),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
+      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,blood_pressure,heart_rate,temperature,oxygen_saturation,vitals_taken_at,vitals_taken_by,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
     queue_date: `eq.${input.queueDate}`,
     order: 'priority.asc,queue_number.asc',
   })
@@ -457,41 +468,84 @@ export async function deleteQueueEntry(queueEntryId: string) {
     throw new Error('Queue entry was not deleted. Check Supabase delete policy for queue_entries.')
   }
 }
-
-export async function updatePatientVitals(input: {
-  patientId: string
+export async function updateQueueEntryVitals(input: {
+  queueEntryId: string
   vitals: {
-    bp: string
-    hr: string
-    temp: string
-    spo2: string
+    blood_pressure: string
+    heart_rate: string
+    temperature: string
+    oxygen_saturation: string
+    vitals_taken_at?: string | null
+    vitals_taken_by?: string | null
   }
 }) {
-  const restBase = getRestApiBase()
-  const response = await fetch(`${restBase}/patients?id=eq.${encodeURIComponent(input.patientId)}`, {
-    method: 'PATCH',
-    headers: {
-      ...getAuthHeaders(),
-      Prefer: 'return=minimal',
-    },
-    body: JSON.stringify({
-      bp: input.vitals.bp || null,
-      hr: input.vitals.hr || null,
-      temp: input.vitals.temp || null,
-      spo2: input.vitals.spo2 || null,
-    }),
+  const restApiBase =
+    ((import.meta.env.VITE_SUPABASE_REST_API as string | undefined)?.trim() || DEFAULT_REST_API).replace(/\/?$/, '/')
+  const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || getAnonKey()
+  const body: Record<string, string | null> = {
+    blood_pressure: normalizeVitalValue(input.vitals.blood_pressure),
+    heart_rate: normalizeVitalValue(input.vitals.heart_rate),
+    temperature: normalizeVitalValue(input.vitals.temperature),
+    oxygen_saturation: normalizeVitalValue(input.vitals.oxygen_saturation),
+    vitals_taken_at: input.vitals.vitals_taken_at || new Date().toISOString(),
+  }
+
+  // vitals_taken_by references auth.users. The current app login uses the custom
+  // accounts table unless a real Supabase Auth JWT is present, so avoid sending an
+  // accounts.id value that would violate the foreign key.
+  const session = loadAuthSession()
+  const accessToken =
+    session?.accessToken && session.accessToken !== anonKey && isLikelyJwt(session.accessToken)
+      ? session.accessToken
+      : undefined
+  if (accessToken && input.vitals.vitals_taken_by) {
+    body.vitals_taken_by = input.vitals.vitals_taken_by
+  }
+
+  const url = `${restApiBase}queue_entries?id=eq.${encodeURIComponent(input.queueEntryId)}`
+  console.info('[FilCare] Saving queue entry vitals via REST PATCH', {
+    queueEntryId: input.queueEntryId,
+    url,
+    body,
   })
 
-  const payload = await readJson<any>(response)
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${accessToken || anonKey}`,
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  })
+
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.hint || 'Failed to update patient vitals')
+    const errorText = await response.text()
+    let errorData: any = errorText
+
+    try {
+      errorData = errorText ? JSON.parse(errorText) : errorText
+    } catch {
+      // Keep the raw text when the response is not JSON.
+    }
+
+    console.error('Error updating queue entry vitals:', errorData)
+    throw new Error(errorData?.message || errorData?.hint || 'Failed to update queue entry vitals')
   }
+
+  return body
+}
+
+function normalizeVitalValue(value: string) {
+  const trimmed = value.trim()
+  return trimmed && trimmed.toUpperCase() !== 'N/A' ? trimmed : null
 }
 
 export async function fetchRegisteredPatients(): Promise<RegisteredPatientRow[]> {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
-    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,bp,hr,temp,spo2,created_at',
+    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
     order: 'created_at.desc',
     limit: '50',
   })
@@ -514,7 +568,7 @@ export async function fetchPatientByQrValue(value: string): Promise<RegisteredPa
 
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
-    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,bp,hr,temp,spo2,created_at',
+    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
     or: `(qr_token.eq.${trimmed},patient_code.eq.${trimmed},id.eq.${trimmed})`,
     limit: '1',
   })

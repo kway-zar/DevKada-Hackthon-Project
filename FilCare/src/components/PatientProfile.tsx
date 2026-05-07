@@ -220,7 +220,7 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
             reject(e);
           }
         };
-        img.onerror = (e) => {
+        img.onerror = () => {
           URL.revokeObjectURL(url);
           reject(new Error('Failed to render SVG'));
         };

@@ -38,7 +38,8 @@ import {
   fetchProviderQueueDashboard,
   fetchQueueEntries,
   deleteQueueEntry,
-  updatePatientVitals,
+  updateQueueEntryVitals,
+  loadAuthSession,
   type ProviderQueueDashboardRow,
   type QueueEntryDashboardRow,
   type RegisteredPatientRow,
@@ -73,6 +74,8 @@ interface Patient {
     temp: string;
     spo2: string;
   };
+  vitalsTakenAt?: string | null;
+  vitalsTakenBy?: string | null;
   medicalHistory: Array<{ date: string; diagnosis: string; doctor: string }>;
   chiefComplaint: string;
   arrivalTime: string;
@@ -202,6 +205,9 @@ function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (t
             <VitalChip label="Temp" value={patient.currentVitals.temp} />
             <VitalChip label="SpO₂" value={patient.currentVitals.spo2} />
           </div>
+          {patient.vitalsTakenAt && (
+            <p className="mt-2 text-xs text-muted-foreground">Taken {new Date(patient.vitalsTakenAt).toLocaleString()}</p>
+          )}
         </div>
 
         {/* Quick Info */}
@@ -419,7 +425,14 @@ function EditVitalsModal({
   onClose: () => void;
   onSave: (id: string, vitals: Patient['currentVitals']) => Promise<void>;
 }) {
-  const [vitals, setVitals] = useState(patient.currentVitals);
+  const toEditableVitals = (currentVitals: Patient['currentVitals']) => ({
+    bp: currentVitals.bp === 'N/A' ? '' : currentVitals.bp,
+    hr: currentVitals.hr === 'N/A' ? '' : currentVitals.hr,
+    temp: currentVitals.temp === 'N/A' ? '' : currentVitals.temp,
+    spo2: currentVitals.spo2 === 'N/A' ? '' : currentVitals.spo2,
+  });
+
+  const [vitals, setVitals] = useState(() => toEditableVitals(patient.currentVitals));
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -447,16 +460,42 @@ function EditVitalsModal({
     return numbers ? `${numbers}%` : '';
   };
 
-  const handleSave = () => {
+  const handleSave = (event?: React.FormEvent) => {
+    event?.preventDefault();
     setIsSaving(true);
     setSaveError('');
-    onSave(patient.id, vitals)
-      .catch((error) => {
+    (async () => {
+      try {
+        const session = loadAuthSession && loadAuthSession();
+        const now = new Date().toISOString();
+
+        if (!patient.queueEntryId) throw new Error('No queue entry id for this patient');
+
+        const updatedVitals = await updateQueueEntryVitals({
+          queueEntryId: patient.queueEntryId,
+          vitals: {
+            blood_pressure: vitals.bp,
+            heart_rate: vitals.hr,
+            temperature: vitals.temp,
+            oxygen_saturation: vitals.spo2,
+            vitals_taken_at: now,
+            vitals_taken_by: session?.userId || null,
+          },
+        });
+
+        await onSave(patient.id, {
+          bp: updatedVitals.blood_pressure || 'N/A',
+          hr: updatedVitals.heart_rate || 'N/A',
+          temp: updatedVitals.temperature || 'N/A',
+          spo2: updatedVitals.oxygen_saturation || 'N/A',
+        });
+        onClose();
+      } catch (error) {
         setSaveError(error instanceof Error ? error.message : 'Unable to save vitals.');
-      })
-      .finally(() => {
+      } finally {
         setIsSaving(false);
-      });
+      }
+    })();
   };
 
   return (
@@ -468,7 +507,7 @@ function EditVitalsModal({
         </DialogTitle>
       </DialogHeader>
 
-      <div className="space-y-4">
+      <form className="space-y-4" onSubmit={handleSave}>
         {saveError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {saveError}
@@ -519,18 +558,18 @@ function EditVitalsModal({
         </div>
 
         <div className="flex gap-3 pt-4">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
+          <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
           <Button
+            type="submit"
             className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-            onClick={handleSave}
             disabled={isSaving}
           >
             {isSaving ? 'Saving...' : 'Save Vitals'}
           </Button>
         </div>
-      </div>
+      </form>
     </DialogContent>
   );
 }
@@ -760,12 +799,14 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
           dob: formatDate(patient?.date_of_birth),
           bloodType: patient?.blood_type || 'N/A',
           allergies: parseAllergies(patient?.allergies),
-          currentVitals: {
-            bp: patient?.bp || 'N/A',
-            hr: patient?.hr || 'N/A',
-            temp: patient?.temp || 'N/A',
-            spo2: patient?.spo2 || 'N/A',
-          },
+            currentVitals: {
+              bp: row.blood_pressure || 'N/A',
+              hr: row.heart_rate || 'N/A',
+              temp: row.temperature || 'N/A',
+              spo2: row.oxygen_saturation || 'N/A',
+            },
+            vitalsTakenAt: row.vitals_taken_at || null,
+            vitalsTakenBy: row.vitals_taken_by || null,
           medicalHistory: [],
           chiefComplaint: triage?.recommendation || triage?.symptoms_text || 'No complaint registered',
           arrivalTime: formatArrivalTime(row.check_in_at),
@@ -867,13 +908,23 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
   const handleSaveVitals = async (id: string, vitals: Patient['currentVitals']) => {
     setActionError(null);
-    await updatePatientVitals({
-      patientId: id,
-      vitals,
-    });
+    const patient = patients.find((p) => p.id === id);
+    if (!patient) return;
+
+    const session = loadAuthSession && loadAuthSession();
+    const now = new Date().toISOString();
 
     setPatients((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, currentVitals: vitals } : p))
+      prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              currentVitals: vitals,
+              vitalsTakenAt: now,
+              vitalsTakenBy: session?.userId || null,
+            }
+          : p
+      )
     );
 
     setSelectedPatient((current) =>
@@ -881,6 +932,8 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         ? {
             ...current,
             currentVitals: vitals,
+            vitalsTakenAt: now,
+            vitalsTakenBy: session?.userId || null,
           }
         : current
     );
