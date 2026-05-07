@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Activity,
   Users,
@@ -552,6 +553,7 @@ interface ProviderDashboardProps {
 }
 
 export function ProviderDashboard({ onBack }: ProviderDashboardProps) {
+  const navigate = useNavigate();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
