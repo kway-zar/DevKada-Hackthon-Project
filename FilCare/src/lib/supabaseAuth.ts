@@ -71,6 +71,15 @@ export interface ProviderFacility {
   name: string
 }
 
+export interface DoctorQueueAccess {
+  scope: 'all' | 'facility'
+  facilityId: string | null
+  facilityName: string | null
+  facilityLabel: string
+  canChooseFacility: boolean
+  availableFacilities: QueueFacility[]
+}
+
 export interface QueueFacility {
   id: string
   name: string
@@ -638,6 +647,120 @@ async function fetchFacilityById(id: string): Promise<QueueFacility> {
     throw new Error(payload?.message || payload?.hint || 'Unable to load selected facility')
   }
   return payload[0] as QueueFacility
+}
+
+export async function fetchQueueFacilities(): Promise<QueueFacility[]> {
+  const restBase = getRestApiBase()
+  const params = new URLSearchParams({
+    select: 'id,name,facility_type,address_line1,city,state,postal_code,phone,emergency_hotline,rating',
+    active: 'eq.true',
+    order: 'name.asc',
+  })
+
+  const response = await fetch(`${restBase}/facilities?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const payload = await readJson<any>(response)
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.hint || 'Unable to load facilities')
+  }
+
+  return Array.isArray(payload) ? (payload as QueueFacility[]) : []
+}
+
+function normalizeDoctorEmail(email?: string | null) {
+  const value = (email || '').trim().toLowerCase()
+  const [localPart = '', domain = ''] = value.split('@')
+  return { email: value, localPart, domain }
+}
+
+function facilityNameMatchesToken(facilityName: string, token: string) {
+  const normalizedFacility = facilityName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const normalizedToken = token.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (!normalizedFacility || !normalizedToken) return false
+  return normalizedFacility.includes(normalizedToken) || normalizedToken.includes(normalizedFacility)
+}
+
+function resolveFacilityAlias(email: string, facilities: QueueFacility[]) {
+  const { localPart, domain } = normalizeDoctorEmail(email)
+  const emailTokens = [localPart, domain, email.toLowerCase()]
+
+  const aliases = [
+    {
+      facilityName: 'Makati Medical Center',
+      tokens: ['mh.ph', 'makati', 'makati medical center', 'mmc'],
+    },
+    {
+      facilityName: 'Boston Medical Center',
+      tokens: ['bmc.ph', 'boston', 'boston medical center'],
+    },
+  ]
+
+  for (const alias of aliases) {
+    const matchedToken = alias.tokens.find((token) =>
+      emailTokens.some((emailToken) => emailToken.includes(token))
+    )
+
+    if (!matchedToken) continue
+
+    const facility =
+      facilities.find((item) => facilityNameMatchesToken(item.name, alias.facilityName)) ||
+      facilities.find((item) => facilityNameMatchesToken(item.name, matchedToken)) ||
+      facilities.find((item) => facilityNameMatchesToken(item.name, alias.tokens[0]))
+
+    if (facility) {
+      return {
+        scope: 'facility' as const,
+        facilityId: facility.id,
+        facilityName: facility.name,
+        facilityLabel: facility.name,
+        canChooseFacility: false,
+      }
+    }
+  }
+
+  return null
+}
+
+export async function resolveDoctorQueueAccess(): Promise<DoctorQueueAccess> {
+  const session = loadAuthSession()
+  const availableFacilities = await fetchQueueFacilities()
+  const email = session?.email || ''
+
+  const aliasMatch = resolveFacilityAlias(email, availableFacilities)
+  if (aliasMatch) {
+    return {
+      ...aliasMatch,
+      availableFacilities,
+    }
+  }
+
+  const providerFacility = await fetchProviderFacility()
+  if (providerFacility) {
+    const matchedFacility =
+      availableFacilities.find((facility) => facility.id === providerFacility.id) ||
+      availableFacilities.find((facility) => facilityNameMatchesToken(facility.name, providerFacility.name))
+
+    if (matchedFacility) {
+      return {
+        scope: 'facility',
+        facilityId: matchedFacility.id,
+        facilityName: matchedFacility.name,
+        facilityLabel: matchedFacility.name,
+        canChooseFacility: false,
+        availableFacilities,
+      }
+    }
+  }
+
+  return {
+    scope: 'all',
+    facilityId: null,
+    facilityName: null,
+    facilityLabel: 'All Facilities',
+    canChooseFacility: true,
+    availableFacilities,
+  }
 }
 
 function splitFacilityAddress(address?: string) {

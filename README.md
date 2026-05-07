@@ -98,6 +98,74 @@ npm install
 ```
 
 3. Create environment variables in FilCare/.env
+<<<<<<< HEAD
+
+```env
+VITE_SUPABASE_REST_API=your_supabase_rest_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+Optional AI/chatbot variables:
+
+```env
+VITE_OPENAI_API_KEY=your_key
+VITE_OPENAI_API_BASE=https://api.openai.com/v1
+VITE_OPENAI_MODEL=gpt-4o-mini
+```
+
+4. Run the development server
+
+```bash
+npm run dev
+```
+
+5. Build for production
+
+```bash
+npm run build
+```
+
+6. Preview production build
+
+```bash
+npm run preview
+```
+
+## Available Scripts
+
+- npm run dev: Start Vite dev server
+- npm run build: Type-check and build production assets
+- npm run lint: Run ESLint
+- npm run preview: Preview production build locally
+
+## App Routes
+
+- /: Landing page
+- /patient: Patient portal
+- /provider: Provider dashboard
+- /provider/patient/:id: Provider patient details
+
+## Provider Dashboard Test Credentials
+
+To try out Provider's Dashboard use the following credentials:
+```bash
+email: doc.oc@filcare.ph
+password: octavius123
+```
+## Notes
+
+- This is a hackathon project and some backend/auth flows are simplified for demo purposes.
+- Supabase SQL setup is in FilCare/supabase/filcare.sql.
+
+## License
+
+Apache License 2.0
+
+FilCare is distributed under the Apache License 2.0, which provides explicit patent grants, comprehensive liability terms, and clear usage permissions. This license is well-suited for healthcare applications and open-source community projects.
+
+See [LICENSE](LICENSE) for full details.
+
+=======
 
 ```env
 VITE_SUPABASE_REST_API=your_supabase_rest_url
@@ -162,3 +230,4 @@ Apache License 2.0
 FilCare is distributed under the Apache License 2.0, which provides explicit patent grants, comprehensive liability terms, and clear usage permissions. This license is well-suited for healthcare applications and open-source community projects.
 
 See [LICENSE](LICENSE) for full details.
+>>>>>>> dd1d5b4b001fa038156e55f692b2861b07c3ebb4
