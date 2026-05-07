@@ -57,7 +57,7 @@ type Priority = 'P1' | 'P2' | 'P3';
 
 interface Patient {
   id: string;
-  patientRecordId?: string;
+  patientRecordId?: string | null;
   queueEntryId?: string;
   facilityId?: string;
   queueDate?: string;
