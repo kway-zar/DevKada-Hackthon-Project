@@ -6,7 +6,7 @@ import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
 import PatientProfile from './PatientProfile';
-import { createTriageQueueEntry, loadAuthSession } from '../lib/supabaseAuth';
+import { createTriageQueueEntry, deleteQueueEntry, loadAuthSession } from '../lib/supabaseAuth';
 
 interface PatientPortalProps {
   patientData: any;
@@ -24,6 +24,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
   const [queueSaveError, setQueueSaveError] = useState('');
   const [selectedFacility, setSelectedFacility] = useState<any>(null);
   const [queueEntry, setQueueEntry] = useState<any>(null);
+  const hasActiveQueue = Boolean(queueEntry);
 
   const menuItems = [
     { id: 'symptom' as PatientView, label: 'Symptoms', icon: Activity, shortLabel: 'Symptoms' },
@@ -34,6 +35,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
   ];
 
   const hasPatient = Boolean(registeredPatient && (registeredPatient.id || registeredPatient.patientCode || registeredPatient.name));
+  const visibleMenuItems = menuItems.filter((it) => {
+    if (isRegistered && it.id === 'preregister') return false;
+    if (hasActiveQueue && it.id === 'facilities') return false;
+    return true;
+  });
 
   const [recordPatient, setRecordPatient] = useState<any>(registeredPatient ?? null);
   const [recordLoading, setRecordLoading] = useState<boolean>(false);
@@ -245,6 +251,38 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
     }
   };
 
+  const resetQueueState = () => {
+    setQueueEntry(null);
+    setSelectedFacility(null);
+    setQueueSaveError('');
+  };
+
+  const handleCancelQueue = async () => {
+    if (!queueEntry?.id) {
+      resetQueueState();
+      setActiveView('facilities');
+      return;
+    }
+
+    if (!String(queueEntry.id).startsWith('local-')) {
+      try {
+        await deleteQueueEntry(queueEntry.id);
+      } catch (error) {
+        setQueueSaveError(error instanceof Error ? error.message : 'Unable to cancel queue entry.');
+        return;
+      }
+    }
+
+    resetQueueState();
+    setActiveView('facilities');
+  };
+
+  const handleLogout = () => {
+    resetQueueState();
+    setTriageData(null);
+    onBack();
+  };
+
   return (
     <div className="size-full flex flex-col bg-gray-50">
       {/* Mobile Header */}
@@ -266,7 +304,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
               </div>
             )}
             <button
-              onClick={onBack}
+              onClick={handleLogout}
               className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-xl transition-colors"
               title="Logout"
             >
@@ -317,6 +355,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
             triageData={triageData}
             selectedFacility={selectedFacility}
             queueEntry={queueEntry}
+            onCancelQueue={handleCancelQueue}
           />
         )}
         {activeView === 'record' && (
@@ -326,12 +365,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
       {/* Bottom Navigation - Mobile */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">
-        <div className="grid grid-cols-5 gap-1 px-2 py-2">
-          {menuItems
-            .filter((it) => {
-              // Hide Register menu if user is registered (isRegistered = true when accounts.id matches patients.user_id)
-              return !(isRegistered && it.id === 'preregister');
-            })
+        <div
+          className="grid gap-1 px-2 py-2"
+          style={{ gridTemplateColumns: `repeat(${visibleMenuItems.length}, minmax(0, 1fr))` }}
+        >
+          {visibleMenuItems
             .map((item) => {
             const Icon = item.icon;
             const isActive = activeView === item.id;
@@ -357,11 +395,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       <div className="hidden sm:flex absolute left-0 top-[57px] bottom-0 w-64 bg-white border-r border-gray-200 z-30">
         <nav className="w-full overflow-y-auto">
           <div className="p-4 space-y-2">
-            {menuItems
-              .filter((it) => {
-                // Hide Register menu if user is registered (isRegistered = true when accounts.id matches patients.user_id)
-                return !(isRegistered && it.id === 'preregister');
-              })
+            {visibleMenuItems
               .map((item) => {
               const Icon = item.icon;
               const isActive = activeView === item.id;
@@ -425,6 +459,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
             triageData={triageData}
             selectedFacility={selectedFacility}
             queueEntry={queueEntry}
+            onCancelQueue={handleCancelQueue}
           />
         )}
         {activeView === 'record' && (

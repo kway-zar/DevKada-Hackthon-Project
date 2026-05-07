@@ -426,6 +426,30 @@ export async function updateQueueEntryStatus(input: {
   }
 }
 
+export async function deleteQueueEntry(queueEntryId: string) {
+  const restBase = getRestApiBase()
+  const params = new URLSearchParams({
+    id: `eq.${queueEntryId}`,
+    select: 'id',
+  })
+  const response = await fetch(`${restBase}/queue_entries?${params.toString()}`, {
+    method: 'DELETE',
+    headers: {
+      ...getAuthHeaders(),
+      Prefer: 'return=representation',
+    },
+  })
+
+  const payload = await readJson<any>(response)
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.hint || 'Failed to delete queue entry')
+  }
+
+  if (!Array.isArray(payload) || payload.length === 0) {
+    throw new Error('Queue entry was not deleted. Check Supabase delete policy for queue_entries.')
+  }
+}
+
 export async function fetchRegisteredPatients(): Promise<RegisteredPatientRow[]> {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({

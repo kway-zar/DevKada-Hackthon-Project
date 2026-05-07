@@ -37,7 +37,7 @@ import {
   fetchProviderFacility,
   fetchProviderQueueDashboard,
   fetchQueueEntries,
-  updateQueueEntryStatus,
+  deleteQueueEntry,
   type ProviderQueueDashboardRow,
   type QueueEntryDashboardRow,
   type RegisteredPatientRow,
@@ -382,10 +382,10 @@ function MarkCompleteModal({
         <div className="space-y-1">
           <p className="text-sm text-foreground">
             Confirm that <span className="font-semibold">{patient.name}</span>&apos;s visit has been completed and their
-            case can be closed.
+            queue entry will be removed from Supabase.
           </p>
           <p className="text-xs text-muted-foreground">
-            This will update their status in the queue and remove them from the active patient list.
+            This will delete the active queue row and remove them from the active patient list.
           </p>
         </div>
 
@@ -834,17 +834,14 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
     setActionError(null);
     try {
-      await updateQueueEntryStatus({
-        queueEntryId: patient.queueEntryId,
-        status: 'completed',
-      });
+      await deleteQueueEntry(patient.queueEntryId);
       setRemovingPatientIds((prev) => [...prev, id]);
       window.setTimeout(() => {
         setPatients((prev) => prev.filter((p) => p.id !== id));
         setRemovingPatientIds((prev) => prev.filter((patientId) => patientId !== id));
       }, 280);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to update queue entry.');
+      setActionError(error instanceof Error ? error.message : 'Unable to delete queue entry.');
     } finally {
       closeModal();
     }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle, Clock, MapPin, Phone, RefreshCw, TrendingUp } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, MapPin, Phone, RefreshCw, TrendingUp, XCircle } from 'lucide-react';
 import { fetchPatientQueueStatus, type PatientQueueEntry, type QueueFacility } from '../lib/supabaseAuth';
 
 interface PatientQueueProps {
@@ -7,6 +7,7 @@ interface PatientQueueProps {
   triageData: any;
   selectedFacility?: any;
   queueEntry?: PatientQueueEntry | null;
+  onCancelQueue?: () => Promise<void> | void;
 }
 
 function formatFacilityAddress(facility?: Partial<QueueFacility> | null) {
@@ -21,13 +22,14 @@ function normalizePhone(value?: string | null) {
   return String(value).replace(/[^\d+]/g, '');
 }
 
-export function PatientQueue({ patientData, triageData, selectedFacility, queueEntry }: PatientQueueProps) {
+export function PatientQueue({ patientData, triageData, selectedFacility, queueEntry, onCancelQueue }: PatientQueueProps) {
   const [currentQueue, setCurrentQueue] = useState<PatientQueueEntry | null>(queueEntry ?? null);
   const [facility, setFacility] = useState<QueueFacility | any | null>(selectedFacility ?? null);
   const [peopleAhead, setPeopleAhead] = useState(0);
   const [nowServing, setNowServing] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [canceling, setCanceling] = useState(false);
 
   useEffect(() => {
     setCurrentQueue(queueEntry ?? null);
@@ -103,6 +105,15 @@ export function PatientQueue({ patientData, triageData, selectedFacility, queueE
   const emergencyPhone = facility?.emergency_hotline || selectedFacility?.emergencyHotline || '911';
   const phoneHref = normalizePhone(primaryPhone);
   const emergencyHref = normalizePhone(emergencyPhone) || '911';
+  const handleCancel = async () => {
+    if (!onCancelQueue) return;
+    setCanceling(true);
+    try {
+      await onCancelQueue();
+    } finally {
+      setCanceling(false);
+    }
+  };
 
   if (!currentQueue) {
     return (
@@ -290,6 +301,19 @@ export function PatientQueue({ patientData, triageData, selectedFacility, queueE
             Contact Facility
           </span>
         </a>
+        {onCancelQueue && (
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={canceling}
+            className="flex-1 py-4 rounded-xl border border-red-200 bg-white text-red-700 font-semibold hover:bg-red-50 active:scale-98 transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <span className="inline-flex items-center justify-center gap-2">
+              <XCircle className="w-5 h-5" />
+              {canceling ? 'Cancelling...' : 'Cancel Appointment'}
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );
