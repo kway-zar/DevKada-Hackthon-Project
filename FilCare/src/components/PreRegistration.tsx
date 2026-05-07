@@ -34,17 +34,56 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
     setUploadedFiles(files.map(f => f.name));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const patientId = 'PT' + Date.now().toString().slice(-8);
-    const patientData = {
-      ...formData,
-      id: patientId,
-      name: `${formData.firstName} ${formData.lastName}`,
-      registeredAt: new Date().toISOString(),
-      medicalRecords: uploadedFiles,
-    };
-    onComplete(patientData);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_REST_API}patients`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          date_of_birth: formData.dateOfBirth,
+          gender: formData.gender,
+          phone: formData.phone,
+          email: formData.email || null,
+          address: formData.address,
+          city: formData.city,
+          zip_code: formData.zipCode,
+          blood_type: formData.bloodType || null,
+          allergies: formData.allergies || null,
+          medications: formData.medications || null,
+          emergency_contact_name: formData.emergencyContact,
+          emergency_contact_phone: formData.emergencyPhone,
+          user_id: null, // For pre-registration, no user yet
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error inserting patient:', errorData);
+        alert('Failed to register patient. Please try again.');
+        return;
+      }
+
+      const data = await response.json();
+      const patientId = data[0].patient_code; // Assuming it returns the inserted row
+      const patientData = {
+        ...formData,
+        id: patientId,
+        name: `${formData.firstName} ${formData.lastName}`,
+        registeredAt: new Date().toISOString(),
+        medicalRecords: uploadedFiles,
+      };
+      onComplete(patientData);
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      alert('An unexpected error occurred. Please try again.');
+    }
   };
 
   return (
