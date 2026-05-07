@@ -88,7 +88,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
           medications: formData.medications || null,
           emergency_contact_name: formData.emergencyContact,
           emergency_contact_phone: formData.emergencyPhone,
-          user_id: null, // For pre-registration, no user yet
+          user_id: null,
         }),
       });
 
@@ -100,7 +100,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
       }
 
       const data = await response.json();
-      const patientId = data[0].patient_code; // Assuming it returns the inserted row
+      const patientId = data[0].patient_code; 
       const patientData = {
         ...formData,
         id: patientId,
