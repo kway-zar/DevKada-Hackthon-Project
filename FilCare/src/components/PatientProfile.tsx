@@ -100,9 +100,33 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
   }, [formData.dateOfBirth]);
 
   const showGuardianFields = age !== null && (age < 18 || age >= 60);
-  const patientCode = patient?.patientCode || patient?.id || 'PT-UNKNOWN';
-  const qrToken = patient?.qrToken || patient?.qr_token || '';
-  const qrCodeValue = qrToken;
+  const patientCode = useMemo(() => patient?.patientCode || patient?.id || 'PT-UNKNOWN', [patient]);
+  
+  // QR code encodes full patient data as JSON for DoctorDashboard scanner
+  const qrCodeValue = useMemo(() => {
+    if (!patient?.id) return '';
+    return JSON.stringify({
+      id: patient.id,
+      patientCode: patient.patientCode || patient.id,
+      name: patient.name || `${formData.firstName} ${formData.lastName}`.trim(),
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      dateOfBirth: patient.dateOfBirth,
+      dob: patient.dateOfBirth,
+      gender: patient.gender,
+      bloodType: patient.bloodType,
+      phone: patient.phone,
+      email: patient.email,
+      address: patient.address,
+      city: patient.city,
+      zipCode: patient.zipCode,
+      allergies: patient.allergies,
+      medications: patient.medications,
+      emergencyContact: patient.emergencyContact,
+      emergencyPhone: patient.emergencyPhone,
+      qrToken: patient.qrToken || patient.qr_token,
+    });
+  }, [patient, formData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -335,9 +359,7 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
                 Show this QR code at any participating facility for instant access to your medical records.
               </p>
 
-              <div className="bg-white rounded-lg p-3 mb-4">
-                <p className="text-xs font-mono text-gray-600 break-all">{qrCodeValue}</p>
-              </div>
+              
 
               <div className="space-y-2 text-sm">
                 <div className="flex items-start gap-2">
