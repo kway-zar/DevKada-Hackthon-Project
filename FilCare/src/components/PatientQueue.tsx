@@ -7,7 +7,7 @@ interface PatientQueueProps {
   triageData: any;
   selectedFacility?: any;
   queueEntry?: PatientQueueEntry | null;
-  onCancelQueue?: () => Promise<void> | void;
+  onCancelQueue?: (queueEntryId?: string) => Promise<void> | void;
 }
 
 function formatFacilityAddress(facility?: Partial<QueueFacility> | null) {
@@ -107,9 +107,10 @@ export function PatientQueue({ patientData, triageData, selectedFacility, queueE
   const emergencyHref = normalizePhone(emergencyPhone) || '911';
   const handleCancel = async () => {
     if (!onCancelQueue) return;
+    const queueIdToCancel = currentQueue?.id || queueEntry?.id;
     setCanceling(true);
     try {
-      await onCancelQueue();
+      await onCancelQueue(queueIdToCancel);
     } finally {
       setCanceling(false);
     }

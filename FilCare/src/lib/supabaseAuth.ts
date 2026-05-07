@@ -51,6 +51,12 @@ export interface QueueEntryDashboardRow {
     date_of_birth?: string | null
     allergies?: string | null
   } | null
+  blood_pressure?: string | null
+  heart_rate?: string | null
+  temperature?: string | null
+  oxygen_saturation?: string | null
+  vitals_taken_at?: string | null
+  vitals_taken_by?: string | null
   facilities?: {
     name?: string | null
   } | null
@@ -63,6 +69,15 @@ export interface QueueEntryDashboardRow {
 export interface ProviderFacility {
   id: string
   name: string
+}
+
+export interface DoctorQueueAccess {
+  scope: 'all' | 'facility'
+  facilityId: string | null
+  facilityName: string | null
+  facilityLabel: string
+  canChooseFacility: boolean
+  availableFacilities: QueueFacility[]
 }
 
 export interface QueueFacility {
@@ -331,27 +346,6 @@ export async function fetchProviderFacility(): Promise<ProviderFacility | null> 
   const session = loadAuthSession()
   if (!session?.userId) return null
 
-  const accountParams = new URLSearchParams({
-    select: 'provider_id,providers!accounts_provider_id_fkey(facility_id,facilities(name))',
-    id: `eq.${session.userId}`,
-    limit: '1',
-  })
-  const accountResponse = await fetch(`${restBase}/accounts?${accountParams.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  const accountPayload = await readJson<any>(accountResponse)
-
-  if (accountResponse.ok) {
-    const account = Array.isArray(accountPayload) ? accountPayload[0] : accountPayload
-    const facilityId = account?.providers?.facility_id
-    if (facilityId) {
-      return {
-        id: facilityId,
-        name: account?.providers?.facilities?.name || 'Assigned facility',
-      }
-    }
-  }
-
   const providerParams = new URLSearchParams({
     select: 'facility_id,facilities(name)',
     user_id: `eq.${session.userId}`,
@@ -362,13 +356,47 @@ export async function fetchProviderFacility(): Promise<ProviderFacility | null> 
   })
   const providerPayload = await readJson<any>(providerResponse)
 
-  if (!providerResponse.ok) return null
-  const provider = Array.isArray(providerPayload) ? providerPayload[0] : providerPayload
-  if (!provider?.facility_id) return null
+  if (providerResponse.ok) {
+    const provider = Array.isArray(providerPayload) ? providerPayload[0] : providerPayload
+    if (provider?.facility_id) {
+      return {
+        id: provider.facility_id,
+        name: provider?.facilities?.name || 'Assigned facility',
+      }
+    }
+  }
+
+  const accountParams = new URLSearchParams({
+    select: 'provider_id',
+    id: `eq.${session.userId}`,
+    limit: '1',
+  })
+  const accountResponse = await fetch(`${restBase}/accounts?${accountParams.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const accountPayload = await readJson<any>(accountResponse)
+
+  if (!accountResponse.ok) return null
+  const account = Array.isArray(accountPayload) ? accountPayload[0] : accountPayload
+  if (!account?.provider_id) return null
+
+  const accountProviderParams = new URLSearchParams({
+    select: 'facility_id,facilities(name)',
+    id: `eq.${account.provider_id}`,
+    limit: '1',
+  })
+  const accountProviderResponse = await fetch(`${restBase}/providers?${accountProviderParams.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const accountProviderPayload = await readJson<any>(accountProviderResponse)
+
+  if (!accountProviderResponse.ok) return null
+  const accountProvider = Array.isArray(accountProviderPayload) ? accountProviderPayload[0] : accountProviderPayload
+  if (!accountProvider?.facility_id) return null
 
   return {
-    id: provider.facility_id,
-    name: provider?.facilities?.name || 'Assigned facility',
+    id: accountProvider.facility_id,
+    name: accountProvider?.facilities?.name || 'Assigned facility',
   }
 }
 
@@ -379,7 +407,7 @@ export async function fetchQueueEntries(input: {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
     select:
-      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
+      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,blood_pressure,heart_rate,temperature,oxygen_saturation,vitals_taken_at,vitals_taken_by,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
     queue_date: `eq.${input.queueDate}`,
     order: 'priority.asc,queue_number.asc',
   })
@@ -448,6 +476,105 @@ export async function deleteQueueEntry(queueEntryId: string) {
   if (!Array.isArray(payload) || payload.length === 0) {
     throw new Error('Queue entry was not deleted. Check Supabase delete policy for queue_entries.')
   }
+}
+export async function updateQueueEntryVitals(input: {
+  queueEntryId: string
+  vitals: {
+    blood_pressure: string
+    heart_rate: string
+    temperature: string
+    oxygen_saturation: string
+    vitals_taken_at?: string | null
+    vitals_taken_by?: string | null
+  }
+}) {
+  const restApiBase =
+    ((import.meta.env.VITE_SUPABASE_REST_API as string | undefined)?.trim() || DEFAULT_REST_API).replace(/\/?$/, '/')
+  const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || getAnonKey()
+  const body: Record<string, string | null> = {
+    blood_pressure: normalizeVitalValue(input.vitals.blood_pressure),
+    heart_rate: normalizeVitalValue(input.vitals.heart_rate),
+    temperature: normalizeVitalValue(input.vitals.temperature),
+    oxygen_saturation: normalizeVitalValue(input.vitals.oxygen_saturation),
+    vitals_taken_at: input.vitals.vitals_taken_at || new Date().toISOString(),
+  }
+
+  // vitals_taken_by references auth.users. The current app login uses the custom
+  // accounts table unless a real Supabase Auth JWT is present, so avoid sending an
+  // accounts.id value that would violate the foreign key.
+  const session = loadAuthSession()
+  const accessToken =
+    session?.accessToken && session.accessToken !== anonKey && isLikelyJwt(session.accessToken)
+      ? session.accessToken
+      : undefined
+  if (accessToken && input.vitals.vitals_taken_by) {
+    body.vitals_taken_by = input.vitals.vitals_taken_by
+  }
+
+  const params = new URLSearchParams({
+    id: `eq.${input.queueEntryId}`,
+    select: 'id,blood_pressure,heart_rate,temperature,oxygen_saturation,vitals_taken_at',
+  })
+  const url = `${restApiBase}queue_entries?${params.toString()}`
+  console.info('[FilCare] Saving queue entry vitals via REST PATCH', {
+    queueEntryId: input.queueEntryId,
+    url,
+    body,
+  })
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${accessToken || anonKey}`,
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(body),
+  })
+  const responseText = await response.text()
+
+  console.info('[FilCare] Queue entry vitals PATCH response', {
+    queueEntryId: input.queueEntryId,
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    body: responseText,
+  })
+
+  if (!response.ok) {
+    let errorData: any = responseText
+
+    try {
+      errorData = responseText ? JSON.parse(responseText) : responseText
+    } catch {
+      // Keep the raw text when the response is not JSON.
+    }
+
+    console.error('Error updating queue entry vitals:', errorData)
+    throw new Error(errorData?.message || errorData?.hint || 'Failed to update queue entry vitals')
+  }
+
+  let updatedRows: any = []
+
+  try {
+    updatedRows = responseText ? JSON.parse(responseText) : []
+  } catch {
+    updatedRows = []
+  }
+
+  if (!Array.isArray(updatedRows) || !updatedRows[0]) {
+    throw new Error(
+      `Supabase accepted the vitals PATCH but returned no updated queue_entries row for id ${input.queueEntryId}. This usually means the hosted database RLS/update policy is blocking anon updates for queue_entries or the id does not match a visible row.`
+    )
+  }
+
+  return updatedRows[0]
+}
+
+function normalizeVitalValue(value: string) {
+  const trimmed = value.trim()
+  return trimmed && trimmed.toUpperCase() !== 'N/A' ? trimmed : null
 }
 
 export async function fetchRegisteredPatients(): Promise<RegisteredPatientRow[]> {
@@ -520,6 +647,120 @@ async function fetchFacilityById(id: string): Promise<QueueFacility> {
     throw new Error(payload?.message || payload?.hint || 'Unable to load selected facility')
   }
   return payload[0] as QueueFacility
+}
+
+export async function fetchQueueFacilities(): Promise<QueueFacility[]> {
+  const restBase = getRestApiBase()
+  const params = new URLSearchParams({
+    select: 'id,name,facility_type,address_line1,city,state,postal_code,phone,emergency_hotline,rating',
+    active: 'eq.true',
+    order: 'name.asc',
+  })
+
+  const response = await fetch(`${restBase}/facilities?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const payload = await readJson<any>(response)
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.hint || 'Unable to load facilities')
+  }
+
+  return Array.isArray(payload) ? (payload as QueueFacility[]) : []
+}
+
+function normalizeDoctorEmail(email?: string | null) {
+  const value = (email || '').trim().toLowerCase()
+  const [localPart = '', domain = ''] = value.split('@')
+  return { email: value, localPart, domain }
+}
+
+function facilityNameMatchesToken(facilityName: string, token: string) {
+  const normalizedFacility = facilityName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const normalizedToken = token.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (!normalizedFacility || !normalizedToken) return false
+  return normalizedFacility.includes(normalizedToken) || normalizedToken.includes(normalizedFacility)
+}
+
+function resolveFacilityAlias(email: string, facilities: QueueFacility[]) {
+  const { localPart, domain } = normalizeDoctorEmail(email)
+  const emailTokens = [localPart, domain, email.toLowerCase()]
+
+  const aliases = [
+    {
+      facilityName: 'Makati Medical Center',
+      tokens: ['mh.ph', 'makati', 'makati medical center', 'mmc'],
+    },
+    {
+      facilityName: 'Boston Medical Center',
+      tokens: ['bmc.ph', 'boston', 'boston medical center'],
+    },
+  ]
+
+  for (const alias of aliases) {
+    const matchedToken = alias.tokens.find((token) =>
+      emailTokens.some((emailToken) => emailToken.includes(token))
+    )
+
+    if (!matchedToken) continue
+
+    const facility =
+      facilities.find((item) => facilityNameMatchesToken(item.name, alias.facilityName)) ||
+      facilities.find((item) => facilityNameMatchesToken(item.name, matchedToken)) ||
+      facilities.find((item) => facilityNameMatchesToken(item.name, alias.tokens[0]))
+
+    if (facility) {
+      return {
+        scope: 'facility' as const,
+        facilityId: facility.id,
+        facilityName: facility.name,
+        facilityLabel: facility.name,
+        canChooseFacility: false,
+      }
+    }
+  }
+
+  return null
+}
+
+export async function resolveDoctorQueueAccess(): Promise<DoctorQueueAccess> {
+  const session = loadAuthSession()
+  const availableFacilities = await fetchQueueFacilities()
+  const email = session?.email || ''
+
+  const aliasMatch = resolveFacilityAlias(email, availableFacilities)
+  if (aliasMatch) {
+    return {
+      ...aliasMatch,
+      availableFacilities,
+    }
+  }
+
+  const providerFacility = await fetchProviderFacility()
+  if (providerFacility) {
+    const matchedFacility =
+      availableFacilities.find((facility) => facility.id === providerFacility.id) ||
+      availableFacilities.find((facility) => facilityNameMatchesToken(facility.name, providerFacility.name))
+
+    if (matchedFacility) {
+      return {
+        scope: 'facility',
+        facilityId: matchedFacility.id,
+        facilityName: matchedFacility.name,
+        facilityLabel: matchedFacility.name,
+        canChooseFacility: false,
+        availableFacilities,
+      }
+    }
+  }
+
+  return {
+    scope: 'all',
+    facilityId: null,
+    facilityName: null,
+    facilityLabel: 'All Facilities',
+    canChooseFacility: true,
+    availableFacilities,
+  }
 }
 
 function splitFacilityAddress(address?: string) {

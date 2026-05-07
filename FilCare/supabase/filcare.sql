@@ -136,6 +136,22 @@ create table if not exists public.queue_entries (
   unique (facility_id, queue_date, queue_number)
 );
 
+-- Ensure vitals columns exist on queue_entries (BP, HR, Temp, SpO2)
+ALTER TABLE public.queue_entries
+  ADD COLUMN IF NOT EXISTS blood_pressure text,
+  ADD COLUMN IF NOT EXISTS heart_rate text,
+  ADD COLUMN IF NOT EXISTS temperature text,
+  ADD COLUMN IF NOT EXISTS oxygen_saturation text,
+  ADD COLUMN IF NOT EXISTS vitals_taken_at timestamptz,
+  ADD COLUMN IF NOT EXISTS vitals_taken_by uuid REFERENCES auth.users(id);
+
+CREATE INDEX IF NOT EXISTS idx_queue_entries_vitals ON public.queue_entries USING btree (
+  blood_pressure,
+  heart_rate,
+  temperature,
+  oxygen_saturation
+) WHERE (blood_pressure IS NOT NULL);
+
 create table if not exists public.appointments (
   id uuid primary key default gen_random_uuid(),
   patient_id uuid not null references public.patients(id) on delete cascade,
@@ -239,7 +255,15 @@ grant select on public.profiles to authenticated;
 grant select on public.providers to authenticated;
 grant select on public.patients to authenticated;
 grant select on public.symptom_triage_assessments to authenticated;
-grant select on public.queue_entries to authenticated;
+grant select on public.queue_entries to anon, authenticated;
+grant update (
+  blood_pressure,
+  heart_rate,
+  temperature,
+  oxygen_saturation,
+  vitals_taken_at,
+  vitals_taken_by
+) on public.queue_entries to anon, authenticated;
 grant select on public.appointments to authenticated;
 grant select on public.medical_records to authenticated;
 grant insert on public.patients to anon, authenticated;
@@ -318,6 +342,14 @@ using (exists (
   where p.id = queue_entries.patient_id
     and p.user_id = auth.uid()
 ));
+
+drop policy if exists "public update queue vitals" on public.queue_entries;
+create policy "public update queue vitals"
+on public.queue_entries
+for update
+to anon, authenticated
+using (true)
+with check (true);
 
 drop policy if exists "read own appointments" on public.appointments;
 create policy "read own appointments"
@@ -492,7 +524,6 @@ grant execute on function public.next_queue_number(uuid, date) to authenticated;
 
 ALTER TABLE public.patients
 ADD COLUMN IF NOT EXISTS address text;
-
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.accounts (

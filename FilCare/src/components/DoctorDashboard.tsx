@@ -34,13 +34,17 @@ import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import {
   fetchPatientByQrValue,
-  fetchProviderFacility,
   fetchProviderQueueDashboard,
   fetchQueueEntries,
   deleteQueueEntry,
+  updateQueueEntryVitals,
+  loadAuthSession,
   type ProviderQueueDashboardRow,
   type QueueEntryDashboardRow,
   type RegisteredPatientRow,
+  type DoctorQueueAccess,
+  type QueueFacility,
+  resolveDoctorQueueAccess,
 } from '../lib/supabaseAuth';
 
 interface DoctorDashboardProps {
@@ -72,6 +76,8 @@ interface Patient {
     temp: string;
     spo2: string;
   };
+  vitalsTakenAt?: string | null;
+  vitalsTakenBy?: string | null;
   medicalHistory: Array<{ date: string; diagnosis: string; doctor: string }>;
   chiefComplaint: string;
   arrivalTime: string;
@@ -125,6 +131,14 @@ function VitalChip({ label, value }: { label: string; value: string }) {
 function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (type: ModalType, patient: Patient) => void }) {
   const cfg = PRIORITY_CONFIG[patient.priority];
   const PriorityIcon = cfg.icon;
+  const vitalEntries = [
+    { label: 'BP', value: patient.currentVitals.bp },
+    { label: 'HR', value: patient.currentVitals.hr },
+    { label: 'Temp', value: patient.currentVitals.temp },
+    { label: 'SpO₂', value: patient.currentVitals.spo2 },
+  ];
+  const hasVitals = vitalEntries.some((vital) => vital.value && vital.value !== 'N/A');
+
   return (
     <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
       <DialogHeader>
@@ -195,12 +209,22 @@ function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (t
               Edit
             </Button>
           </div>
-          <div className="grid grid-cols-4 gap-2">
-            <VitalChip label="BP" value={patient.currentVitals.bp} />
-            <VitalChip label="HR" value={patient.currentVitals.hr} />
-            <VitalChip label="Temp" value={patient.currentVitals.temp} />
-            <VitalChip label="SpO₂" value={patient.currentVitals.spo2} />
-          </div>
+          {hasVitals ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {vitalEntries.map((vital) => (
+                  <VitalChip key={vital.label} label={vital.label} value={vital.value || 'N/A'} />
+                ))}
+              </div>
+              {patient.vitalsTakenAt && (
+                <p className="mt-2 text-xs text-muted-foreground">Taken {new Date(patient.vitalsTakenAt).toLocaleString()}</p>
+              )}
+            </>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              No vitals recorded yet.
+            </div>
+          )}
         </div>
 
         {/* Quick Info */}
@@ -342,7 +366,7 @@ function MarkCompleteModal({
 }: {
   patient: Patient;
   onClose: () => void;
-  onConfirm: (id: string) => void;
+  onConfirm: (queueEntryId: string) => void;
 }) {
   const cfg = PRIORITY_CONFIG[patient.priority];
   const PriorityIcon = cfg.icon;
@@ -385,7 +409,7 @@ function MarkCompleteModal({
             queue entry will be removed from Supabase.
           </p>
           <p className="text-xs text-muted-foreground">
-            This will delete the active queue row and remove them from the active patient list.
+            This will delete queue entry <span className="font-mono">{patient.queueEntryId || patient.id}</span> and remove them from the active patient list.
           </p>
         </div>
 
@@ -396,7 +420,7 @@ function MarkCompleteModal({
           <Button
             className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white"
             onClick={() => {
-              onConfirm(patient.id);
+              onConfirm(patient.queueEntryId || patient.id);
               onClose();
             }}
           >
@@ -416,9 +440,18 @@ function EditVitalsModal({
 }: {
   patient: Patient;
   onClose: () => void;
-  onSave: (id: string, vitals: Patient['currentVitals']) => void;
+  onSave: (id: string, vitals: Patient['currentVitals']) => Promise<void>;
 }) {
-  const [vitals, setVitals] = useState(patient.currentVitals);
+  const toEditableVitals = (currentVitals: Patient['currentVitals']) => ({
+    bp: currentVitals.bp === 'N/A' ? '' : currentVitals.bp,
+    hr: currentVitals.hr === 'N/A' ? '' : currentVitals.hr,
+    temp: currentVitals.temp === 'N/A' ? '' : currentVitals.temp,
+    spo2: currentVitals.spo2 === 'N/A' ? '' : currentVitals.spo2,
+  });
+
+  const [vitals, setVitals] = useState(() => toEditableVitals(patient.currentVitals));
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const formatBloodPressure = (value: string) => {
     // Allow numbers, slash, and spaces
@@ -444,8 +477,42 @@ function EditVitalsModal({
     return numbers ? `${numbers}%` : '';
   };
 
-  const handleSave = () => {
-    onSave(patient.id, vitals);
+  const handleSave = (event?: React.FormEvent) => {
+    event?.preventDefault();
+    setIsSaving(true);
+    setSaveError('');
+    (async () => {
+      try {
+        const session = loadAuthSession && loadAuthSession();
+        const now = new Date().toISOString();
+
+        if (!patient.queueEntryId) throw new Error('No queue entry id for this patient');
+
+        const updatedVitals = await updateQueueEntryVitals({
+          queueEntryId: patient.queueEntryId,
+          vitals: {
+            blood_pressure: vitals.bp,
+            heart_rate: vitals.hr,
+            temperature: vitals.temp,
+            oxygen_saturation: vitals.spo2,
+            vitals_taken_at: now,
+            vitals_taken_by: session?.userId || null,
+          },
+        });
+
+        await onSave(patient.id, {
+          bp: updatedVitals.blood_pressure || 'N/A',
+          hr: updatedVitals.heart_rate || 'N/A',
+          temp: updatedVitals.temperature || 'N/A',
+          spo2: updatedVitals.oxygen_saturation || 'N/A',
+        });
+        onClose();
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : 'Unable to save vitals.');
+      } finally {
+        setIsSaving(false);
+      }
+    })();
   };
 
   return (
@@ -457,7 +524,13 @@ function EditVitalsModal({
         </DialogTitle>
       </DialogHeader>
 
-      <div className="space-y-4">
+      <form className="space-y-4" onSubmit={handleSave}>
+        {saveError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {saveError}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
@@ -502,17 +575,18 @@ function EditVitalsModal({
         </div>
 
         <div className="flex gap-3 pt-4">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
+          <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
           <Button
+            type="submit"
             className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-            onClick={handleSave}
+            disabled={isSaving}
           >
-            Save Vitals
+            {isSaving ? 'Saving...' : 'Save Vitals'}
           </Button>
         </div>
-      </div>
+      </form>
     </DialogContent>
   );
 }
@@ -646,7 +720,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [queueDate, setQueueDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [providerFacility, setProviderFacility] = useState<{ id: string; name: string } | null>(null);
+  const [doctorAccess, setDoctorAccess] = useState<DoctorQueueAccess | null>(null);
   const [facilityFilter, setFacilityFilter] = useState('all');
   const [actionError, setActionError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -659,8 +733,8 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     setFetchError(null);
 
     try {
-      const assignedFacility = await fetchProviderFacility();
-      setProviderFacility(assignedFacility);
+      const access = await resolveDoctorQueueAccess();
+      setDoctorAccess(access);
 
       const formatArrivalTime = (checkInAt: string | null) => {
         if (!checkInAt) return 'N/A';
@@ -742,12 +816,14 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
           dob: formatDate(patient?.date_of_birth),
           bloodType: patient?.blood_type || 'N/A',
           allergies: parseAllergies(patient?.allergies),
-          currentVitals: {
-            bp: 'N/A',
-            hr: 'N/A',
-            temp: 'N/A',
-            spo2: 'N/A',
-          },
+            currentVitals: {
+              bp: row.blood_pressure || 'N/A',
+              hr: row.heart_rate || 'N/A',
+              temp: row.temperature || 'N/A',
+              spo2: row.oxygen_saturation || 'N/A',
+            },
+            vitalsTakenAt: row.vitals_taken_at || null,
+            vitalsTakenBy: row.vitals_taken_by || null,
           medicalHistory: [],
           chiefComplaint: triage?.recommendation || triage?.symptoms_text || 'No complaint registered',
           arrivalTime: formatArrivalTime(row.check_in_at),
@@ -794,14 +870,31 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         };
       };
 
+      const facilityId = access.scope === 'facility'
+        ? access.facilityId
+        : facilityFilter !== 'all'
+          ? facilityFilter
+          : null;
+      const selectedFacility = facilityId
+        ? access.availableFacilities.find((facility) => facility.id === facilityId) || null
+        : null;
+
       try {
         const queueRows = await fetchQueueEntries({
           queueDate,
+          ...(facilityId ? { facilityId } : {}),
         });
         setPatients(queueRows.map(toQueuePatient));
       } catch (_directQueueError) {
         const viewRows = await fetchProviderQueueDashboard(queueDate);
-        setPatients(viewRows.map(toViewPatient));
+        const filteredRows =
+          access.scope === 'facility' && selectedFacility
+            ? viewRows.filter((row) => row.facility_name === selectedFacility.name)
+            : facilityId
+              ? viewRows.filter((row) => row.facility_name === selectedFacility?.name)
+              : viewRows;
+
+        setPatients(filteredRows.map(toViewPatient));
       }
     } catch (error) {
       setFetchError(
@@ -810,7 +903,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     } finally {
       setLoadingPatients(false);
     }
-  }, [queueDate]);
+  }, [queueDate, facilityFilter]);
 
   useEffect(() => {
     fetchPatients();
@@ -819,14 +912,31 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [fetchPatients]);
 
+  useEffect(() => {
+    if (doctorAccess?.scope === 'facility' && doctorAccess.facilityId) {
+      setFacilityFilter(doctorAccess.facilityId);
+    } else if (doctorAccess?.scope === 'all' && facilityFilter !== 'all') {
+      const stillAvailable = doctorAccess.availableFacilities.some((facility) => facility.id === facilityFilter);
+      if (!stillAvailable) {
+        setFacilityFilter('all');
+      }
+    }
+  }, [doctorAccess, facilityFilter]);
+
   const handleAction = (type: ModalType, patient: Patient) => {
     setSelectedPatient(patient);
     setActiveModal(type);
   };
 
-  const handleMarkComplete = async (id: string) => {
-    const patient = patients.find((p) => p.id === id);
-    if (!patient?.queueEntryId) {
+  const handleMarkComplete = async (queueEntryId: string) => {
+    const patient = patients.find((p) => p.queueEntryId === queueEntryId);
+    if (!patient) {
+      setActionError('Could not find that queue entry in the current list.');
+      closeModal();
+      return;
+    }
+
+    if (!patient.queueEntryId) {
       setActionError('This patient does not have a queue entry to update.');
       closeModal();
       return;
@@ -835,10 +945,10 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     setActionError(null);
     try {
       await deleteQueueEntry(patient.queueEntryId);
-      setRemovingPatientIds((prev) => [...prev, id]);
+      setRemovingPatientIds((prev) => [...prev, patient.id]);
       window.setTimeout(() => {
-        setPatients((prev) => prev.filter((p) => p.id !== id));
-        setRemovingPatientIds((prev) => prev.filter((patientId) => patientId !== id));
+        setPatients((prev) => prev.filter((p) => p.queueEntryId !== queueEntryId));
+        setRemovingPatientIds((prev) => prev.filter((patientId) => patientId !== patient.id));
       }, 280);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Unable to delete queue entry.');
@@ -847,9 +957,36 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     }
   };
 
-  const handleSaveVitals = (id: string, vitals: Patient['currentVitals']) => {
+  const handleSaveVitals = async (id: string, vitals: Patient['currentVitals']) => {
+    setActionError(null);
+    const patient = patients.find((p) => p.id === id);
+    if (!patient) return;
+
+    const session = loadAuthSession && loadAuthSession();
+    const now = new Date().toISOString();
+
     setPatients((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, currentVitals: vitals } : p))
+      prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              currentVitals: vitals,
+              vitalsTakenAt: now,
+              vitalsTakenBy: session?.userId || null,
+            }
+          : p
+      )
+    );
+
+    setSelectedPatient((current) =>
+      current && current.id === id
+        ? {
+            ...current,
+            currentVitals: vitals,
+            vitalsTakenAt: now,
+            vitalsTakenBy: session?.userId || null,
+          }
+        : current
     );
     setActiveModal('see-patient');
   };
@@ -1138,16 +1275,27 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     };
   }, [isScannerOpen]);
 
+  const queueFacilities: QueueFacility[] = doctorAccess?.availableFacilities ?? [];
+  const selectedFacility = facilityFilter === 'all'
+    ? null
+    : queueFacilities.find((facility) => facility.id === facilityFilter) || null;
+  const selectedFacilityName = selectedFacility?.name || doctorAccess?.facilityName || null;
+  const isFacilityLocked = doctorAccess?.scope === 'facility';
+  const queueScopeLabel = facilityFilter === 'all'
+    ? (isFacilityLocked ? selectedFacilityName || doctorAccess?.facilityLabel || 'Assigned facility' : 'All Facilities')
+    : selectedFacilityName || doctorAccess?.facilityLabel || 'Selected facility';
+
   const filteredPatients = patients
     .filter((p: Patient) =>
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.queueNumber.toString().includes(searchQuery)
     )
-    .filter((p: Patient) => facilityFilter === 'all' || p.location === facilityFilter)
+    .filter((p: Patient) => {
+      if (facilityFilter === 'all') return true;
+      return p.facilityId === facilityFilter || p.location === selectedFacilityName || p.location === facilityFilter;
+    })
     .filter((p: Patient) => (activeTab === 'queue' ? p.status !== 'completed' : true));
-
-  const queueFacilities = Array.from(new Set(patients.map((p) => p.location).filter(Boolean))).sort();
 
   const totalQueueEntries = patients.length;
   const activeQueueEntries = patients.filter((p) => p.status !== 'completed').length;
@@ -1270,10 +1418,10 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                 <div>
                   <p className="text-xs font-semibold uppercase text-blue-700">Queue Management</p>
                   <h2 className="mt-1 text-xl font-semibold text-slate-950">
-                    {facilityFilter === 'all' ? 'All Facilities' : facilityFilter}
+                    {queueScopeLabel}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Showing Supabase queue entries for the selected date. Assigned facility: {providerFacility?.name || 'not set'}.
+                    Showing queue entries for the selected date. Access is scoped by the doctor&apos;s email domain.
                   </p>
                 </div>
 
@@ -1292,13 +1440,25 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                     <select
                       value={facilityFilter}
                       onChange={(event) => setFacilityFilter(event.target.value)}
+                      disabled={isFacilityLocked}
                       className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="all">All Facilities</option>
-                      {queueFacilities.map((facility) => (
-                        <option key={facility} value={facility}>{facility}</option>
-                      ))}
+                      {isFacilityLocked ? (
+                        <option value={doctorAccess?.facilityId || 'all'}>{selectedFacilityName || doctorAccess?.facilityLabel || 'Assigned Facility'}</option>
+                      ) : (
+                        <>
+                          <option value="all">All Facilities</option>
+                          {queueFacilities.map((facility) => (
+                            <option key={facility.id} value={facility.id}>{facility.name}</option>
+                          ))}
+                        </>
+                      )}
                     </select>
+                    {isFacilityLocked && (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        This account is locked to {selectedFacilityName || doctorAccess?.facilityLabel || 'its assigned facility'}.
+                      </p>
+                    )}
                   </label>
                   <button
                     onClick={fetchPatients}
@@ -1363,7 +1523,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
             ) : filteredPatients.length === 0 ? (
               <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center text-gray-600">
                 No queue entries found for {queueDate}
-                {facilityFilter !== 'all' ? ` at ${facilityFilter}` : ''}. Complete symptom triage and facility selection first, then refresh.
+                {facilityFilter !== 'all' ? ` at ${queueScopeLabel}` : ''}. Complete symptom triage and refresh.
               </div>
             ) : (
               <div className="grid md:grid-cols-2 gap-4">
@@ -1468,10 +1628,10 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
                 <div>
                   <p className="text-xs font-semibold uppercase text-blue-700">Operational Analytics</p>
                   <h2 className="mt-1 text-2xl font-semibold text-slate-950">
-                    {providerFacility?.name || 'Queue Network'} · {queueDate}
+                    {queueScopeLabel} · {queueDate}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Metrics are calculated from the currently loaded Supabase queue entries.
+                    Metrics are calculated from the currently loaded queue entries.
                   </p>
                 </div>
                 <button

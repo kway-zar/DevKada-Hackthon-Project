@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { CheckCircle, Download, Edit3, Loader2, Shield, UserCircle, Upload } from 'lucide-react';
 
@@ -127,6 +127,7 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
     [formData, patient?.id, patient?.name, patientCode, qrToken]
   );
   const qrCodeValue = JSON.stringify(qrPayload);
+  const qrRef = useRef<HTMLDivElement | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -195,6 +196,117 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
     }
   };
 
+  const svgElementToPngDataUrl = (svg: SVGSVGElement) =>
+    new Promise<string>((resolve, reject) => {
+      try {
+        const serializer = new XMLSerializer();
+        const svgStr = serializer.serializeToString(svg);
+        const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width || 200;
+            canvas.height = img.height || 200;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Canvas not supported');
+            ctx.drawImage(img, 0, 0);
+            const png = canvas.toDataURL('image/png');
+            URL.revokeObjectURL(url);
+            resolve(png);
+          } catch (e) {
+            URL.revokeObjectURL(url);
+            reject(e);
+          }
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('Failed to render SVG'));
+        };
+        img.src = url;
+      } catch (e) {
+        reject(e);
+      }
+    });
+
+  const handleDownloadRecords = async () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      patient: {
+        id: patient?.id,
+        patientCode,
+        name: `${formData.firstName} ${formData.lastName}`.trim() || patient?.name || '',
+        ...formData,
+      },
+      qrPayload,
+    };
+
+    // Try to generate a PDF using jspdf; fallback to JSON download if unavailable
+    try {
+      const mod = await import('jspdf');
+      const { jsPDF } = mod as any;
+
+      const pdf = new jsPDF();
+      pdf.setFontSize(16);
+      pdf.text('Patient Records', 14, 20);
+
+      const lines = [
+        `Name: ${payload.patient.name}`,
+        `Patient Code: ${payload.patient.patientCode}`,
+        `DOB: ${payload.patient.dateOfBirth || ''}`,
+        `Gender: ${payload.patient.gender || ''}`,
+        `Phone: ${payload.patient.phone || ''}`,
+        `Email: ${payload.patient.email || ''}`,
+        `Address: ${[payload.patient.address, payload.patient.city, payload.patient.zipCode].filter(Boolean).join(', ')}`,
+      ];
+
+      let y = 30;
+      pdf.setFontSize(11);
+      for (const line of lines) {
+        pdf.text(line, 14, y);
+        y += 7;
+      }
+
+      // embed QR image if available
+      try {
+        const svg = qrRef.current?.querySelector('svg') as SVGSVGElement | null;
+        if (svg) {
+          const pngData = await svgElementToPngDataUrl(svg);
+          // place image top-right
+          pdf.addImage(pngData, 'PNG', 140, 10, 50, 50);
+        }
+      } catch (e) {
+        // ignore QR embed failures
+      }
+
+      pdf.save(`${patientCode}-records.pdf`);
+      setSaveSuccess('PDF downloaded.');
+      setTimeout(() => setSaveSuccess(''), 3000);
+      return;
+    } catch (err) {
+      // fallback to JSON
+    }
+
+    // Fallback: download JSON
+    try {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${patientCode}-records.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      setSaveSuccess('Records downloaded.');
+      setTimeout(() => setSaveSuccess(''), 3000);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to download records');
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 mb-8">
@@ -202,7 +314,7 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
           <UserCircle className="h-8 w-8 text-blue-600" />
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Patient Profile</h1>
-            <p className="text-sm text-gray-500">Edit details and save through the Supabase REST API</p>
+            <p className="text-sm text-gray-500">Edit details and save</p>
           </div>
         </div>
 
@@ -337,7 +449,11 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
                 <Upload className="h-5 w-5" />
                 Upload Medical Records
               </button>
-              <button type="button" className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-semibold">
+              <button
+                type="button"
+                onClick={handleDownloadRecords}
+                className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-semibold"
+              >
                 <Download className="h-5 w-5" />
                 Download Records
               </button>
@@ -351,7 +467,7 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
                 <h3 className="font-bold text-gray-900">Digital Patient ID</h3>
               </div>
 
-              <div className="bg-white p-4 rounded-lg mb-4">
+              <div ref={qrRef} className="bg-white p-4 rounded-lg mb-4">
                 <QRCodeSVG value={qrCodeValue} size={200} level="H" className="w-full h-auto" />
               </div>
 
