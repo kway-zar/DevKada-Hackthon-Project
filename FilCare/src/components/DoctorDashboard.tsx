@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Clock,
   AlertTriangle,
@@ -54,150 +54,95 @@ interface Patient {
   status: 'waiting' | 'in-progress' | 'completed';
 }
 
-interface Patient {
+interface SupabasePatientRow {
   id: string;
-  name: string;
-  age: number;
-  gender: string;
-  priority: Priority;
-  symptoms: string[];
-  queueNumber: number;
-  waitTime: string;
-  location: string;
-  phone: string;
-  dob: string;
-  bloodType: string;
-  allergies: string[];
-  currentVitals: {
-    bp: string;
-    hr: string;
-    temp: string;
-    spo2: string;
-  };
-  medicalHistory: Array<{ date: string; diagnosis: string; doctor: string }>;
-  chiefComplaint: string;
-  arrivalTime: string;
-  status: 'waiting' | 'in-progress' | 'completed';
+  patient_code?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  phone?: string | null;
+  blood_type?: string | null;
+  allergies?: string | null;
+  medications?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  qr_token?: string | null;
+  created_at?: string | null;
 }
 
-const MOCK_PATIENTS: Patient[] = [
-  {
-    id: 'FIL-20240501-001',
-    name: 'Maria Santos',
-    age: 67,
-    gender: 'Female',
-    priority: 'P1',
-    symptoms: ['Chest pain', 'Shortness of breath', 'Diaphoresis'],
-    queueNumber: 1,
-    waitTime: 'Now',
-    location: 'Triage Bay 1',
-    phone: '+63 917 234 5678',
-    dob: 'Mar 12, 1957',
-    bloodType: 'A+',
-    allergies: ['Penicillin', 'Aspirin'],
-    currentVitals: { bp: '160/95', hr: '112 bpm', temp: '37.2°C', spo2: '94%' },
-    medicalHistory: [
-      { date: 'Jan 14, 2024', diagnosis: 'Hypertension follow-up', doctor: 'Dr. Reyes' },
-      { date: 'Aug 3, 2023', diagnosis: 'Coronary artery disease screening', doctor: 'Dr. Cruz' },
-      { date: 'Feb 20, 2023', diagnosis: 'Dyslipidemia management', doctor: 'Dr. Reyes' },
-    ],
-    chiefComplaint: 'Sudden onset chest pain radiating to left arm for 45 minutes',
-    arrivalTime: '08:14 AM',
-    status: 'in-progress',
-  },
-  {
-    id: 'FIL-20240501-002',
-    name: 'Jose Dela Cruz',
-    age: 34,
-    gender: 'Male',
-    priority: 'P2',
-    symptoms: ['High fever', 'Severe headache', 'Stiff neck'],
-    queueNumber: 2,
-    waitTime: '~12 min',
-    location: 'Waiting Area B',
-    phone: '+63 918 876 4321',
-    dob: 'Jun 5, 1990',
-    bloodType: 'O+',
-    allergies: ['Sulfonamides'],
-    currentVitals: { bp: '122/78', hr: '98 bpm', temp: '39.7°C', spo2: '98%' },
-    medicalHistory: [
-      { date: 'Oct 11, 2023', diagnosis: 'Dengue fever', doctor: 'Dr. Mendoza' },
-      { date: 'May 2, 2022', diagnosis: 'Annual physical exam', doctor: 'Dr. Lim' },
-    ],
-    chiefComplaint: '39.7°C fever since yesterday with progressive headache and neck stiffness',
-    arrivalTime: '08:31 AM',
+const DEFAULT_REST_API = 'https://mhahfguiqnaczorujmhd.supabase.co/rest/v1/'
+
+function getRestBase() {
+  return (
+    (import.meta.env.VITE_SUPABASE_REST_API as string | undefined)?.trim() ||
+    DEFAULT_REST_API
+  ).replace(/\/$/, '')
+}
+
+function getAnonKey() {
+  return (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || ''
+}
+
+function parseAllergies(value: string | null | undefined) {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    if (Array.isArray(parsed)) return parsed.map((item) => String(item))
+  } catch {
+    return value.split(',').map((item) => item.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function formatAge(dateOfBirth?: string | null) {
+  if (!dateOfBirth) return 0
+  const dob = new Date(dateOfBirth)
+  if (Number.isNaN(dob.getTime())) return 0
+  const today = new Date()
+  let age = today.getFullYear() - dob.getFullYear()
+  const monthDiff = today.getMonth() - dob.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age -= 1
+  return age
+}
+
+function formatDate(dateOfBirth?: string | null) {
+  if (!dateOfBirth) return 'N/A'
+  const date = new Date(dateOfBirth)
+  if (Number.isNaN(date.getTime())) return 'N/A'
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function toPatient(row: SupabasePatientRow, index: number): Patient {
+  const name = [row.first_name, row.last_name].filter(Boolean).join(' ') || row.patient_code || row.id
+  const age = formatAge(row.date_of_birth)
+
+  return {
+    id: row.patient_code || row.id,
+    name,
+    age,
+    gender: row.gender ? String(row.gender).replace(/^./, (c) => c.toUpperCase()) : 'Unknown',
+    priority: age >= 65 ? 'P1' : 'P3',
+    symptoms: [],
+    queueNumber: index + 1,
+    waitTime: 'Pending',
+    location: 'Reception',
+    phone: row.phone || 'N/A',
+    dob: formatDate(row.date_of_birth),
+    bloodType: row.blood_type || 'N/A',
+    allergies: parseAllergies(row.allergies),
+    currentVitals: {
+      bp: 'N/A',
+      hr: 'N/A',
+      temp: 'N/A',
+      spo2: 'N/A',
+    },
+    medicalHistory: [],
+    chiefComplaint: 'No complaint registered',
+    arrivalTime: row.created_at ? new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD',
     status: 'waiting',
-  },
-  {
-    id: 'FIL-20240501-003',
-    name: 'Ana Reyes',
-    age: 28,
-    gender: 'Female',
-    priority: 'P2',
-    symptoms: ['Abdominal pain', 'Nausea', 'Vomiting'],
-    queueNumber: 3,
-    waitTime: '~25 min',
-    location: 'Waiting Area A',
-    phone: '+63 919 543 2109',
-    dob: 'Sep 22, 1995',
-    bloodType: 'B-',
-    allergies: ['None known'],
-    currentVitals: { bp: '110/70', hr: '88 bpm', temp: '37.9°C', spo2: '99%' },
-    medicalHistory: [
-      { date: 'Mar 3, 2024', diagnosis: 'GERD follow-up', doctor: 'Dr. Tan' },
-      { date: 'Dec 15, 2023', diagnosis: 'Gastroenteritis', doctor: 'Dr. Tan' },
-    ],
-    chiefComplaint: 'Sudden periumbilical pain migrating to RLQ, associated with nausea and 2 episodes of vomiting',
-    arrivalTime: '08:47 AM',
-    status: 'waiting',
-  },
-  {
-    id: 'FIL-20240501-004',
-    name: 'Roberto Mangahas',
-    age: 45,
-    gender: 'Male',
-    priority: 'P3',
-    symptoms: ['Sprained ankle', 'Mild swelling'],
-    queueNumber: 4,
-    waitTime: '~40 min',
-    location: 'Waiting Area A',
-    phone: '+63 920 123 9876',
-    dob: 'Nov 8, 1978',
-    bloodType: 'AB+',
-    allergies: ['Ibuprofen'],
-    currentVitals: { bp: '128/82', hr: '76 bpm', temp: '36.8°C', spo2: '99%' },
-    medicalHistory: [
-      { date: 'Jan 5, 2024', diagnosis: 'Hypertension screening', doctor: 'Dr. Buenaventura' },
-    ],
-    chiefComplaint: 'Twisted right ankle while playing basketball 2 hours ago, difficulty weight bearing',
-    arrivalTime: '09:02 AM',
-    status: 'waiting',
-  },
-  {
-    id: 'FIL-20240501-005',
-    name: 'Lourdes Villanueva',
-    age: 72,
-    gender: 'Female',
-    priority: 'P3',
-    symptoms: ['Mild dizziness', 'Ear pain'],
-    queueNumber: 5,
-    waitTime: '~55 min',
-    location: 'Waiting Area C',
-    phone: '+63 921 654 3210',
-    dob: 'Feb 14, 1952',
-    bloodType: 'A-',
-    allergies: ['Codeine'],
-    currentVitals: { bp: '135/85', hr: '72 bpm', temp: '36.6°C', spo2: '97%' },
-    medicalHistory: [
-      { date: 'Apr 22, 2024', diagnosis: 'Otitis media', doctor: 'Dr. Garcia' },
-      { date: 'Feb 10, 2024', diagnosis: 'Diabetes management', doctor: 'Dr. Reyes' },
-      { date: 'Nov 30, 2023', diagnosis: 'Cataract follow-up', doctor: 'Dr. Sy' },
-    ],
-    chiefComplaint: 'Right ear pain and hearing muffling for 3 days with intermittent dizziness',
-    arrivalTime: '09:15 AM',
-    status: 'waiting',
-  },
-];
+  }
+}
 
 const PRIORITY_CONFIG: Record<
   Priority,
@@ -744,7 +689,7 @@ function PatientCard({
 
 
 export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
-  const [patients, setPatients] = useState<Patient[]>(MOCK_PATIENTS);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [removingPatientIds, setRemovingPatientIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'queue' | 'patients' | 'analytics'>('queue');
   const [searchQuery, setSearchQuery] = useState('');
@@ -754,10 +699,53 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [scannerStatus, setScannerStatus] = useState('Waiting to start scanner.');
   const [scannerError, setScannerError] = useState('');
   const [scannedPayload, setScannedPayload] = useState<any>(null);
+  const [loadingPatients, setLoadingPatients] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scannerIntervalRef = useRef<number | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  const fetchPatients = useCallback(async () => {
+    setLoadingPatients(true);
+    setFetchError(null);
+
+    try {
+      const restBase = getRestBase();
+      const anonKey = getAnonKey();
+      const response = await fetch(
+        `${restBase}/patients?select=id,patient_code,first_name,last_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at&order=created_at.desc`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: anonKey,
+            Authorization: `Bearer ${anonKey}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Unable to load registered patients.');
+      }
+
+      const data = (await response.json()) as SupabasePatientRow[];
+      setPatients(data.map(toPatient));
+    } catch (error) {
+      setFetchError(
+        error instanceof Error ? error.message : 'Unable to load registered patients.'
+      );
+    } finally {
+      setLoadingPatients(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPatients();
+    const handleWindowFocus = () => fetchPatients();
+    window.addEventListener('focus', handleWindowFocus);
+    return () => window.removeEventListener('focus', handleWindowFocus);
+  }, [fetchPatients]);
 
   const handleAction = (type: ModalType, patient: Patient) => {
     setSelectedPatient(patient);
@@ -1005,6 +993,16 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
       <div className="flex-1 overflow-auto p-4 sm:p-6">
         {activeTab === 'queue' && (
           <div className="space-y-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-gray-600">Showing registered patients from Supabase.</div>
+              <button
+                onClick={fetchPatients}
+                className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Refresh list
+              </button>
+            </div>
+
             {/* Search */}
             <div className="flex items-center gap-4">
               <div className="flex-1 relative">
@@ -1027,16 +1025,30 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
             </div>
 
             {/* Patient Cards */}
-            <div className="grid md:grid-cols-2 gap-4">
-              {filteredPatients.map((patient: Patient) => (
-                <PatientCard
-                  key={patient.id}
-                  patient={patient}
-                  onAction={handleAction}
-                  isRemoving={removingPatientIds.includes(patient.id)}
-                />
-              ))}
-            </div>
+            {loadingPatients ? (
+              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center text-gray-600">
+                Loading registered patients...
+              </div>
+            ) : fetchError ? (
+              <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
+                {fetchError}
+              </div>
+            ) : filteredPatients.length === 0 ? (
+              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center text-gray-600">
+                No registered patients found. Please register patients first or refresh the page.
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {filteredPatients.map((patient: Patient) => (
+                  <PatientCard
+                    key={patient.id}
+                    patient={patient}
+                    onAction={handleAction}
+                    isRemoving={removingPatientIds.includes(patient.id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 

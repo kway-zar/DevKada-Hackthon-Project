@@ -83,9 +83,9 @@ export function AuthModal({ open, onOpenChange, defaultUserType, onAuthSuccess }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px] p-0 gap-0 overflow-hidden bg-white z-1020 text-black/80">
         {/* Header with FilCare Branding */}
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white">
+        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-4 text-white">
           <DialogHeader>
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-3 mb-2">
               <div className="relative">
                 <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg">
                   <Activity className="w-7 h-7 text-white" strokeWidth={2.5} />
@@ -110,7 +110,7 @@ export function AuthModal({ open, onOpenChange, defaultUserType, onAuthSuccess }
         {/* Auth Tabs */}
         <div className="p-6">
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'login' | 'signup')} className="w-full">
-            <TabsList className={`grid w-full mb-6 ${isProviderOnly ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            <TabsList className={`grid w-full mb-2 ${isProviderOnly ? 'grid-cols-1' : 'grid-cols-2'}`}>
               <TabsTrigger value="login">Login</TabsTrigger>
               {!isProviderOnly && <TabsTrigger value="signup">Sign Up</TabsTrigger>}
             </TabsList>
@@ -168,7 +168,7 @@ export function AuthModal({ open, onOpenChange, defaultUserType, onAuthSuccess }
             {/* Sign Up Tab */}
             {!isProviderOnly && (
               <TabsContent value="signup">
-                <form onSubmit={handleSignup} className="space-y-4">
+                <form onSubmit={handleSignup} className="space-y-2">
                   <div className="space-y-2">
                     <Label htmlFor="signup-name">Full Name</Label>
                     <Input
