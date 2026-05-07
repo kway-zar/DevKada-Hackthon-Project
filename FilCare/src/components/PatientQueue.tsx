@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle, Clock, MapPin, Phone, RefreshCw, TrendingUp, XCircle } from 'lucide-react';
-import { fetchPatientQueueStatus, type PatientQueueEntry, type QueueFacility } from '../lib/supabaseAuth';
+import { fetchPatientQueueStatus, getPhilippineDateString, type PatientQueueEntry, type QueueFacility } from '../lib/supabaseAuth';
 
 interface PatientQueueProps {
   patientData: any;
@@ -82,7 +82,7 @@ export function PatientQueue({ patientData, triageData, selectedFacility, queueE
   const checkInTime = currentQueue?.check_in_at
     ? new Date(currentQueue.check_in_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
     : 'Pending';
-  const queueDate = currentQueue?.queue_date || new Date().toISOString().slice(0, 10);
+  const queueDate = currentQueue?.queue_date || getPhilippineDateString();
   const progress = useMemo(() => {
     if (!queueNumber || queueNumber <= 0) return 0;
     return Math.min(100, Math.max(0, Math.round(((queueNumber - peopleAhead) / queueNumber) * 100)));

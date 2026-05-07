@@ -32,6 +32,11 @@ function AuthenticatedRoute({
     return <LandingPage isAuthenticated={false} onRequireAuth={onRequireAuth} />
   }
 
+  if (session.role !== requiredRole) {
+    const targetPath = session.role === 'provider' ? '/provider' : '/patient'
+    return <Navigate to={targetPath} replace />
+  }
+
   return <>{children}</>
 }
 

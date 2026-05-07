@@ -322,7 +322,7 @@ export async function saveQueueEntry(entry: RecordLike) {
 
 export async function listQueueEntries() {
   const remote = await tryList('provider_queue_dashboard')
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = getPhilippineDateString()
 
   const mapped =
     remote && remote.length > 0
@@ -376,3 +376,4 @@ export async function listQueueEntries() {
     source: 'local',
   }))
 }
+import { getPhilippineDateString } from './supabaseAuth'
