@@ -791,6 +791,12 @@ function PatientCard({
   );
 }
 
+function getLocalDateInputValue() {
+  const now = new Date();
+  const localTime = now.getTime() - now.getTimezoneOffset() * 60000;
+  return new Date(localTime).toISOString().slice(0, 10);
+}
+
 
 export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -805,7 +811,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [scannedPayload, setScannedPayload] = useState<any>(null);
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [queueDate, setQueueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [queueDate, setQueueDate] = useState(() => getLocalDateInputValue());
   const [doctorAccess, setDoctorAccess] = useState<DoctorQueueAccess | null>(null);
   const [facilityFilter, setFacilityFilter] = useState('all');
   const [completionBonusByFacility, setCompletionBonusByFacility] = useState<Record<string, number>>({});
