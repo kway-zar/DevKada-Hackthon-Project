@@ -45,6 +45,12 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
   const [recordLoading, setRecordLoading] = useState<boolean>(false);
   const [recordError, setRecordError] = useState<string>('');
 
+  const mergeMedicalRecords = (base: any, next: any) => ({
+    ...base,
+    ...next,
+    medicalRecords: next?.medicalRecords ?? base?.medicalRecords ?? [],
+  });
+
   useEffect(() => {
     // REGISTRATION VERIFICATION FLOW:
     // 1. Load session from localStorage (filcare-auth-session)
@@ -84,6 +90,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       emergencyContact: patient.emergency_contact_name,
       emergencyPhone: patient.emergency_contact_phone,
       qrToken: patient.qr_token,
+      medicalRecords: patientData?.medicalRecords ?? [],
     });
 
     // Query patients by user_id matching the userID from localStorage session
@@ -213,6 +220,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
             emergencyContact: patient.emergency_contact_name,
             emergencyPhone: patient.emergency_contact_phone,
             qrToken: patient.qr_token,
+            medicalRecords: recordPatient?.medicalRecords ?? registeredPatient?.medicalRecords ?? patientData?.medicalRecords ?? [],
           };
           setRecordPatient(patientDataObj);
         } else {
@@ -357,8 +365,9 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'preregister' && (
           <PreRegistration
             onComplete={(data) => {
-              setRegisteredPatient(data);
-              setPatientData(data);
+              const next = mergeMedicalRecords(registeredPatient ?? patientData, data);
+              setRegisteredPatient(next);
+              setPatientData(next);
               setIsRegistered(true); // Mark user as registered after successful patient creation
               setActiveView('facilities');
             }}
@@ -380,7 +389,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
           />
         )}
         {activeView === 'record' && (
-          <PatientProfile patient={registeredPatient ?? patientData} onPatientUpdated={(data) => { setPatientData(data); setRegisteredPatient(data); }} />
+          <PatientProfile patient={registeredPatient ?? patientData} onPatientUpdated={(data) => {
+            const next = mergeMedicalRecords(registeredPatient ?? patientData, data);
+            setPatientData(next);
+            setRegisteredPatient(next);
+          }} />
         )}
       </div>
 
@@ -488,7 +501,12 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
             {recordLoading && <div className="text-sm text-gray-500">Loading records...</div>}
             {recordError && <div className="text-sm text-red-600">{recordError}</div>}
             {!recordLoading && !recordError && (
-              <PatientProfile patient={recordPatient ?? registeredPatient ?? patientData} onPatientUpdated={(d) => { setPatientData(d); setRegisteredPatient(d); setRecordPatient(d); }} />
+              <PatientProfile patient={recordPatient ?? registeredPatient ?? patientData} onPatientUpdated={(d) => {
+                const next = mergeMedicalRecords(recordPatient ?? registeredPatient ?? patientData, d);
+                setPatientData(next);
+                setRegisteredPatient(next);
+                setRecordPatient(next);
+              }} />
             )}
           </div>
         )}
