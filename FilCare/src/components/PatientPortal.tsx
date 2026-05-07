@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LogOut, FileText, MapPin, QrCode, Clock, Activity } from 'lucide-react';
 import { FilCareLogo } from './FilCareLogo';
 import { SymptomChecker } from './SymptomChecker';
@@ -6,6 +6,7 @@ import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
 import PatientProfile from './PatientProfile';
+import { loadAuthSession } from '../lib/supabaseAuth';
 
 interface PatientPortalProps {
   patientData: any;
@@ -18,6 +19,8 @@ type PatientView = 'symptom' | 'preregister' | 'facilities' | 'queue' | 'record'
 export function PatientPortal({ patientData, setPatientData, onBack }: PatientPortalProps) {
   const [activeView, setActiveView] = useState<PatientView>('symptom');
   const [triageData, setTriageData] = useState<any>(null);
+  const [registeredPatient, setRegisteredPatient] = useState<any>(patientData ?? null);
+  const [isRegistered, setIsRegistered] = useState(false);
 
   const menuItems = [
     { id: 'symptom' as PatientView, label: 'Symptoms', icon: Activity, shortLabel: 'Symptoms' },
@@ -26,6 +29,152 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
     { id: 'queue' as PatientView, label: 'Queue', icon: Clock, shortLabel: 'Queue' },
     { id: 'record' as PatientView, label: 'Records', icon: QrCode, shortLabel: 'Records' },
   ];
+
+  const hasPatient = Boolean(registeredPatient && (registeredPatient.id || registeredPatient.patientCode || registeredPatient.name));
+
+  const [recordPatient, setRecordPatient] = useState<any>(registeredPatient ?? null);
+  const [recordLoading, setRecordLoading] = useState<boolean>(false);
+  const [recordError, setRecordError] = useState<string>('');
+
+  useEffect(() => {
+    // Check registration status: Load accounts.id from session and find matching patient with user_id
+    const session = loadAuthSession();
+    if (!session?.userId) return; // session.userId = accounts.id
+
+    const restBase = ((import.meta.env.VITE_SUPABASE_REST_API as string | undefined) || '').replace(/\/$/, '');
+    const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || '';
+
+    if (!restBase || !anonKey) return;
+
+    const mappedFromRow = (patient: any) => ({
+      id: patient.id,
+      name: patient.full_name,
+      firstName: patient.first_name,
+      lastName: patient.last_name,
+      patientCode: patient.patient_code,
+      email: patient.email,
+      phone: patient.phone,
+      dateOfBirth: patient.date_of_birth,
+      gender: patient.gender,
+      bloodType: patient.blood_type,
+      address: patient.address,
+      city: patient.city,
+      zipCode: patient.zip_code,
+      allergies: patient.allergies,
+      medications: patient.medications,
+      emergencyContact: patient.emergency_contact_name,
+      emergencyPhone: patient.emergency_contact_phone,
+      qrToken: patient.qr_token,
+    });
+
+    fetch(`${restBase}/patients?user_id=eq.${encodeURIComponent(session.userId)}&select=*`, {
+      // Query: Find patient record where patients.user_id = accounts.id (session.userId)
+      // If found: User is registered, show all menus except Register
+      // If not found: User is not registered, show Register menu
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+      },
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Failed to load patient');
+        }
+
+        return res.json();
+      })
+      .then((data) => {
+        const patient = Array.isArray(data) ? data[0] : data;
+
+        if (patient) {
+          // Registration confirmed: Patient record found with matching user_id
+          const mappedPatient = mappedFromRow(patient);
+          setRegisteredPatient(mappedPatient);
+          setPatientData(mappedPatient);
+          setRecordPatient(mappedPatient);
+          setIsRegistered(true); // Hide Register from menu
+          return;
+        }
+
+        // No patient record found for this user
+        setIsRegistered(false); // Show Register in menu
+        if (patientData) {
+          setRegisteredPatient(patientData);
+          setRecordPatient(patientData);
+        }
+      })
+      .catch((err) => {
+        console.error('Error loading registered patient:', err);
+        setIsRegistered(false); // On error, assume not registered, show Register menu
+        if (patientData) {
+          setRegisteredPatient(patientData);
+          setRecordPatient(patientData);
+        }
+      });
+  }, []);
+
+  useEffect(() => {
+    // When user opens Records view, fetch the latest patient data from REST API
+    if (activeView !== 'record') return;
+    if (!hasPatient) return;
+
+    const restBase = ((import.meta.env.VITE_SUPABASE_REST_API as string | undefined) || '').replace(/\/$/, '');
+    const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || '';
+
+    const sourcePatient = registeredPatient ?? patientData;
+    const id = encodeURIComponent((sourcePatient?.id ?? sourcePatient?.patientCode ?? ''));
+    if (!id) return;
+
+    setRecordLoading(true);
+    setRecordError('');
+
+    fetch(`${restBase}/patients?id=eq.${id}`, {
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+      },
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Failed to fetch patient records');
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (data && data.length > 0) {
+          const patient = data[0];
+          const patientDataObj = {
+            id: patient.id,
+            name: patient.full_name,
+            firstName: patient.first_name,
+            lastName: patient.last_name,
+            patientCode: patient.patient_code,
+            email: patient.email,
+            phone: patient.phone,
+            dateOfBirth: patient.date_of_birth,
+            gender: patient.gender,
+            bloodType: patient.blood_type,
+            address: patient.address,
+            city: patient.city,
+            zipCode: patient.zip_code,
+            allergies: patient.allergies,
+            medications: patient.medications,
+            emergencyContact: patient.emergency_contact_name,
+            emergencyPhone: patient.emergency_contact_phone,
+            qrToken: patient.qr_token,
+          };
+          setRecordPatient(patientDataObj);
+        } else {
+          setRecordPatient(sourcePatient);
+        }
+      })
+      .catch((err) => {
+        setRecordError(err?.message ?? 'Unable to load records');
+      })
+      .finally(() => setRecordLoading(false));
+  }, [activeView, registeredPatient, patientData]);
 
   return (
     <div className="size-full flex flex-col bg-gray-50">
@@ -36,15 +185,15 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
             <FilCareLogo size="sm" showText={false} />
             <div>
               <h1 className="text-base sm:text-lg font-bold text-gray-900">Patient Portal</h1>
-              {patientData && (
-                <p className="text-xs text-gray-500">ID: {patientData.id}</p>
+              {registeredPatient && (
+                <p className="text-xs text-gray-500">ID: {registeredPatient.id}</p>
               )}
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {patientData && (
+            {registeredPatient && (
               <div className="hidden sm:block text-right">
-                <p className="font-medium text-gray-900 text-sm">{patientData.name}</p>
+                <p className="font-medium text-gray-900 text-sm">{registeredPatient.name}</p>
               </div>
             )}
             <button
@@ -64,7 +213,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
           <SymptomChecker
             onTriageComplete={(data) => {
               setTriageData(data);
-              if (!patientData) {
+              if (!registeredPatient) {
                 setActiveView('preregister');
               } else {
                 setActiveView('facilities');
@@ -75,7 +224,9 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'preregister' && (
           <PreRegistration
             onComplete={(data) => {
+              setRegisteredPatient(data);
               setPatientData(data);
+              setIsRegistered(true); // Mark user as registered after successful patient creation
               setActiveView('facilities');
             }}
           />
@@ -92,14 +243,19 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
           <PatientQueue patientData={patientData} triageData={triageData} />
         )}
         {activeView === 'record' && (
-          <PatientProfile patient={patientData} onPatientUpdated={setPatientData} />
+          <PatientProfile patient={registeredPatient ?? patientData} onPatientUpdated={(data) => { setPatientData(data); setRegisteredPatient(data); }} />
         )}
       </div>
 
       {/* Bottom Navigation - Mobile */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">
         <div className="grid grid-cols-5 gap-1 px-2 py-2">
-          {menuItems.map((item) => {
+          {menuItems
+            .filter((it) => {
+              // Hide Register menu if user is registered (isRegistered = true when accounts.id matches patients.user_id)
+              return !(isRegistered && it.id === 'preregister');
+            })
+            .map((item) => {
             const Icon = item.icon;
             const isActive = activeView === item.id;
             return (
@@ -124,7 +280,12 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       <div className="hidden sm:flex absolute left-0 top-[57px] bottom-0 w-64 bg-white border-r border-gray-200 z-30">
         <nav className="w-full overflow-y-auto">
           <div className="p-4 space-y-2">
-            {menuItems.map((item) => {
+            {menuItems
+              .filter((it) => {
+                // Hide Register menu if user is registered (isRegistered = true when accounts.id matches patients.user_id)
+                return !(isRegistered && it.id === 'preregister');
+              })
+              .map((item) => {
               const Icon = item.icon;
               const isActive = activeView === item.id;
               return (
@@ -152,7 +313,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
           <SymptomChecker
             onTriageComplete={(data) => {
               setTriageData(data);
-              if (!patientData) {
+              if (!registeredPatient) {
                 setActiveView('preregister');
               } else {
                 setActiveView('facilities');
@@ -163,7 +324,9 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'preregister' && (
           <PreRegistration
             onComplete={(data) => {
+              setRegisteredPatient(data);
               setPatientData(data);
+              setIsRegistered(true); // Mark user as registered after successful patient creation
               setActiveView('facilities');
             }}
           />
@@ -180,7 +343,13 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
           <PatientQueue patientData={patientData} triageData={triageData} />
         )}
         {activeView === 'record' && (
-          <PatientProfile patient={patientData} onPatientUpdated={setPatientData} />
+          <div className="p-4">
+            {recordLoading && <div className="text-sm text-gray-500">Loading records...</div>}
+            {recordError && <div className="text-sm text-red-600">{recordError}</div>}
+            {!recordLoading && !recordError && (
+              <PatientProfile patient={recordPatient ?? registeredPatient ?? patientData} onPatientUpdated={(d) => { setPatientData(d); setRegisteredPatient(d); setRecordPatient(d); }} />
+            )}
+          </div>
         )}
       </div>
     </div>

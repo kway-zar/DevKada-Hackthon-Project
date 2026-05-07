@@ -108,12 +108,17 @@ export async function signInWithPassword(email: string, password: string): Promi
   
   // Query the custom accounts table instead of Supabase Auth
   const response = await fetch(
-    `${restBase}/accounts?select=*,patients(full_name),providers(specialty)&email=eq.${encodeURIComponent(email)}`,
+    `${restBase}/accounts?select=id,email,password_hash,account_type,patient_id,patients!accounts_patient_id_fkey(full_name)&email=eq.${encodeURIComponent(email.trim())}&limit=1`,
     { headers: getAuthHeaders() }
   );
 
-  const data = await readJson<any[]>(response);
-  const account = data[0];
+  const data = await readJson<any>(response);
+  if (!response.ok) {
+    const message = (data && (data.message || data.hint)) || 'Unable to load account.';
+    throw new Error(message);
+  }
+
+  const account = Array.isArray(data) ? data[0] : data;
 
   // Manual password check (In production, use a secure backend for hashing)[cite: 3]
   if (!account || account.password_hash !== password) {
@@ -127,7 +132,7 @@ export async function signInWithPassword(email: string, password: string): Promi
     expiresAt: Date.now() + 3600000,
     userId: account.id,
     email: account.email,
-    role: account.account_type, // Assigned automatically by the DB trigger
+    role: (account.account_type || 'patient') as AuthRole, // Assigned automatically by the DB trigger
     fullName: account.patients?.full_name || "Staff Member"
   };
 }
