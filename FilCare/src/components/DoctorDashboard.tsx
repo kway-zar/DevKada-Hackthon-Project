@@ -34,21 +34,18 @@ import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import {
   fetchPatientByQrValue,
-  fetchPatientById,
   fetchProviderQueueDashboard,
   fetchQueueEntries,
   deleteQueueEntry,
-  updatePatientVitals,
-  fetchPatientMedicalRecords,
-  fetchDoctorIdentity,
-  resolveDoctorQueueAccess,
+  createMedicalRecord,
+  updateQueueEntryVitals,
+  loadAuthSession,
   type ProviderQueueDashboardRow,
   type QueueEntryDashboardRow,
   type RegisteredPatientRow,
-  type PatientMedicalRecordRow,
-  type DoctorIdentity,
   type DoctorQueueAccess,
   type QueueFacility,
+  resolveDoctorQueueAccess,
 } from '../lib/supabaseAuth';
 
 interface DoctorDashboardProps {
@@ -60,8 +57,6 @@ type Priority = 'P1' | 'P2' | 'P3';
 interface Patient {
   id: string;
   queueEntryId?: string;
-  patientId?: string;
-  patientCode?: string;
   facilityId?: string;
   queueDate?: string;
   name: string;
@@ -82,6 +77,8 @@ interface Patient {
     temp: string;
     spo2: string;
   };
+  vitalsTakenAt?: string | null;
+  vitalsTakenBy?: string | null;
   medicalHistory: Array<{ date: string; diagnosis: string; doctor: string }>;
   chiefComplaint: string;
   arrivalTime: string;
@@ -153,135 +150,16 @@ function VitalChip({ label, value }: { label: string; value: string }) {
   );
 }
 
-function parseAllergiesText(value?: string | null) {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.map((item) => String(item)).filter(Boolean);
-  } catch {
-    // fall through to comma parsing
-  }
-  return String(value)
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return 'N/A';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'N/A';
-  return date.toLocaleString('en-PH', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function formatDateOnly(value?: string | null) {
-  if (!value) return 'N/A';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'N/A';
-  return date.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-function calculateAge(value?: string | null) {
-  if (!value) return 0;
-  const dob = new Date(value);
-  if (Number.isNaN(dob.getTime())) return 0;
-  const today = new Date();
-  let age = today.getFullYear() - dob.getFullYear();
-  const monthDiff = today.getMonth() - dob.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age -= 1;
-  return Math.max(0, age);
-}
-
-function mapMedicalHistory(records: PatientMedicalRecordRow[], queueVisit?: Patient['medicalHistory'][number]) {
-  const history = records.map((record) => ({
-    date: formatDateTime(record.created_at || record.record_date),
-    diagnosis: record.description || record.title || record.category,
-    doctor: [record.provider_name, record.facility_name].filter(Boolean).join(' @ ') || 'FilCare Record',
-  }));
-
-  if (queueVisit) {
-    history.unshift(queueVisit);
-  }
-
-  return history;
-}
-
-function getPatientLookupKey(patient: Patient) {
-  return patient.patientId || patient.patientCode || patient.id;
-}
-
 function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (type: ModalType, patient: Patient) => void }) {
-  const [resolvedPatient, setResolvedPatient] = useState(patient);
-  const [loadingPatient, setLoadingPatient] = useState(true);
-
-  useEffect(() => {
-    let isMounted = true;
-    setLoadingPatient(true);
-
-    const loadPatient = async () => {
-      const lookupId = patient.patientId;
-      const lookupKey = getPatientLookupKey(patient);
-      if (!lookupId && !lookupKey) {
-        if (isMounted) {
-          setResolvedPatient(patient);
-          setLoadingPatient(false);
-        }
-        return;
-      }
-
-      try {
-        const record = lookupId ? await fetchPatientById(lookupId) : await fetchPatientByQrValue(lookupKey);
-        if (!isMounted) return;
-
-        if (!record) {
-          setResolvedPatient(patient);
-          return;
-        }
-
-        setResolvedPatient({
-          ...patient,
-          id: record.patient_code || record.id || patient.id,
-          patientId: record.id,
-          patientCode: record.patient_code || patient.patientCode,
-          name: record.full_name || patient.name,
-          age: calculateAge(record.date_of_birth),
-          gender: record.gender ? String(record.gender).replace(/^./, (c) => c.toUpperCase()) : patient.gender,
-          dob: formatDateOnly(record.date_of_birth),
-          bloodType: record.blood_type || patient.bloodType,
-          allergies: parseAllergiesText(record.allergies),
-          phone: record.phone || patient.phone,
-          currentVitals: {
-            bp: record.bp || patient.currentVitals.bp,
-            hr: record.hr || patient.currentVitals.hr,
-            temp: record.temp || patient.currentVitals.temp,
-            spo2: record.spo2 || patient.currentVitals.spo2,
-          },
-        });
-      } catch {
-        if (isMounted) {
-          setResolvedPatient(patient);
-        }
-      } finally {
-        if (isMounted) {
-          setLoadingPatient(false);
-        }
-      }
-    };
-
-    void loadPatient();
-    return () => {
-      isMounted = false;
-    };
-  }, [patient]);
-
-  const cfg = PRIORITY_CONFIG[resolvedPatient.priority];
+  const cfg = PRIORITY_CONFIG[patient.priority];
   const PriorityIcon = cfg.icon;
+  const vitalEntries = [
+    { label: 'BP', value: patient.currentVitals.bp },
+    { label: 'HR', value: patient.currentVitals.hr },
+    { label: 'Temp', value: patient.currentVitals.temp },
+    { label: 'SpO₂', value: patient.currentVitals.spo2 },
+  ];
+  const hasVitals = vitalEntries.some((vital) => vital.value && vital.value !== 'N/A');
 
   return (
     <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -293,42 +171,45 @@ function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (t
       </DialogHeader>
 
       <div className="space-y-5">
+        {/* Identity */}
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white text-xl font-bold shrink-0">
-            {resolvedPatient.name
+            {patient.name
               .split(' ')
               .map((n) => n[0])
               .join('')
               .slice(0, 2)}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-blue-900 leading-tight">{resolvedPatient.name}</h3>
+            <h3 className="text-lg font-semibold text-blue-900 leading-tight">{patient.name}</h3>
             <p className="text-sm text-muted-foreground">
-              {loadingPatient ? 'Loading patient profile...' : `${resolvedPatient.age} y/o - ${resolvedPatient.gender} - DOB ${resolvedPatient.dob}`}
+              {patient.age} y/o · {patient.gender} · DOB {patient.dob}
             </p>
-            <p className="text-xs text-muted-foreground font-mono mt-0.5">{resolvedPatient.id}</p>
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">{patient.id}</p>
           </div>
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full ${cfg.bg} ${cfg.border} border`}>
             <PriorityIcon className={`w-4 h-4 ${cfg.color}`} />
             <span className={`text-xs font-semibold ${cfg.color}`}>
-              {resolvedPatient.priority} - {cfg.label}
+              {patient.priority} · {cfg.label}
             </span>
           </div>
         </div>
 
         <Separator />
 
+        {/* Chief Complaint */}
         <div>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Chief Complaint</p>
           <p className="text-sm text-foreground leading-relaxed bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
-            {resolvedPatient.chiefComplaint}
+            {patient.chiefComplaint}
           </p>
         </div>
 
+        {/* Symptoms */}
         <div>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Active Symptoms</p>
           <div className="flex flex-wrap gap-2">
-            {resolvedPatient.symptoms.map((s) => (
+            {patient.symptoms.map((s) => (
               <span key={s} className={`text-xs px-3 py-1 rounded-full font-medium ${cfg.bg} ${cfg.color} ${cfg.border} border`}>
                 {s}
               </span>
@@ -336,51 +217,64 @@ function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (t
           </div>
         </div>
 
+        {/* Vitals */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Current Vitals</p>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onAction('edit-vitals', resolvedPatient)}
+              onClick={() => onAction('edit-vitals', patient)}
               className="h-6 px-2 text-xs"
             >
               <Edit3 className="w-3 h-3 mr-1" />
               Edit
             </Button>
           </div>
-          <div className="grid grid-cols-4 gap-2">
-            <VitalChip label="BP" value={resolvedPatient.currentVitals.bp} />
-            <VitalChip label="HR" value={resolvedPatient.currentVitals.hr} />
-            <VitalChip label="Temp" value={resolvedPatient.currentVitals.temp} />
-            <VitalChip label="SpO2" value={resolvedPatient.currentVitals.spo2} />
-          </div>
+          {hasVitals ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {vitalEntries.map((vital) => (
+                  <VitalChip key={vital.label} label={vital.label} value={vital.value || 'N/A'} />
+                ))}
+              </div>
+              {patient.vitalsTakenAt && (
+                <p className="mt-2 text-xs text-muted-foreground">Taken {new Date(patient.vitalsTakenAt).toLocaleString()}</p>
+              )}
+            </>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              No vitals recorded yet.
+            </div>
+          )}
         </div>
 
+        {/* Quick Info */}
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="flex items-center gap-2 text-muted-foreground">
             <MapPin className="w-4 h-4 text-blue-400 shrink-0" />
-            <span>{resolvedPatient.location}</span>
+            <span>{patient.location}</span>
           </div>
           <div className="flex items-center gap-2 text-muted-foreground">
             <Clock className="w-4 h-4 text-blue-400 shrink-0" />
-            <span>Arrived {resolvedPatient.arrivalTime}</span>
+            <span>Arrived {patient.arrivalTime}</span>
           </div>
           <div className="flex items-center gap-2 text-muted-foreground">
             <Phone className="w-4 h-4 text-blue-400 shrink-0" />
-            <span>{resolvedPatient.phone}</span>
+            <span>{patient.phone}</span>
           </div>
           <div className="flex items-center gap-2 text-muted-foreground">
             <QrCode className="w-4 h-4 text-blue-400 shrink-0" />
-            <span>Queue #{resolvedPatient.queueNumber} - {resolvedPatient.waitTime}</span>
+            <span>Queue #{patient.queueNumber} · {patient.waitTime}</span>
           </div>
         </div>
 
-        {resolvedPatient.allergies.length > 0 && (
+        {/* Allergies */}
+        {patient.allergies.length > 0 && (
           <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
             <p className="text-xs font-semibold text-red-700 uppercase tracking-wider mb-1.5">Allergies</p>
             <div className="flex flex-wrap gap-2">
-              {resolvedPatient.allergies.map((a) => (
+              {patient.allergies.map((a) => (
                 <span key={a} className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">
                   {a}
                 </span>
@@ -394,84 +288,6 @@ function SeePatientModal({ patient, onAction }: { patient: Patient; onAction: (t
 }
 
 function ViewRecordsModal({ patient }: { patient: Patient }) {
-  const [resolvedPatient, setResolvedPatient] = useState(patient);
-  const [medicalHistory, setMedicalHistory] = useState<Patient['medicalHistory']>(patient.medicalHistory);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    setLoading(true);
-    setLoadError(null);
-
-    const loadRecords = async () => {
-      const lookupId = patient.patientId;
-      const lookupKey = getPatientLookupKey(patient);
-      if (!lookupId && !lookupKey) {
-        if (isMounted) setLoading(false);
-        return;
-      }
-
-      try {
-        const [record, records] = await Promise.all([
-          lookupId ? fetchPatientById(lookupId) : fetchPatientByQrValue(lookupKey),
-          fetchPatientMedicalRecords({
-            patientIdOrCode: lookupId || lookupKey,
-            facilityId: patient.facilityId || null,
-          }),
-        ]);
-
-        if (!isMounted) return;
-
-        const resolvedProfile = record
-          ? {
-              ...patient,
-              id: record.patient_code || record.id || patient.id,
-              patientId: record.id,
-              patientCode: record.patient_code || patient.patientCode,
-              name: record.full_name || patient.name,
-              age: calculateAge(record.date_of_birth),
-              gender: record.gender ? String(record.gender).replace(/^./, (c) => c.toUpperCase()) : patient.gender,
-              dob: formatDateOnly(record.date_of_birth),
-              bloodType: record.blood_type || patient.bloodType,
-              allergies: parseAllergiesText(record.allergies),
-              phone: record.phone || patient.phone,
-              currentVitals: {
-                bp: record.bp || patient.currentVitals.bp,
-                hr: record.hr || patient.currentVitals.hr,
-                temp: record.temp || patient.currentVitals.temp,
-                spo2: record.spo2 || patient.currentVitals.spo2,
-              },
-            }
-          : patient;
-
-        const queueVisit =
-          resolvedProfile.queueDate || resolvedProfile.arrivalTime
-            ? {
-                date: `${resolvedProfile.queueDate ? formatDateOnly(resolvedProfile.queueDate) : 'Today'}${resolvedProfile.arrivalTime ? ` ${resolvedProfile.arrivalTime}` : ''}`,
-                diagnosis: `Queue visit at ${resolvedProfile.location}`,
-                doctor: resolvedProfile.chiefComplaint || 'Current facility visit',
-              }
-            : undefined;
-
-        setResolvedPatient(resolvedProfile);
-        setMedicalHistory(mapMedicalHistory(records, queueVisit));
-      } catch (error) {
-        if (!isMounted) return;
-        setLoadError(error instanceof Error ? error.message : 'Unable to load patient records.');
-        setResolvedPatient(patient);
-        setMedicalHistory(patient.medicalHistory);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    void loadRecords();
-    return () => {
-      isMounted = false;
-    };
-  }, [patient]);
-
   return (
     <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
       <DialogHeader>
@@ -482,83 +298,74 @@ function ViewRecordsModal({ patient }: { patient: Patient }) {
       </DialogHeader>
 
       <div className="space-y-5">
+        {/* Patient */}
         <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white text-sm font-bold shrink-0">
-            {resolvedPatient.name
+            {patient.name
               .split(' ')
               .map((n) => n[0])
               .join('')
               .slice(0, 2)}
           </div>
           <div>
-            <p className="font-semibold text-blue-900 text-sm">{resolvedPatient.name}</p>
+            <p className="font-semibold text-blue-900 text-sm">{patient.name}</p>
             <p className="text-xs text-muted-foreground">
-              {loading ? 'Loading patient history...' : `${resolvedPatient.age} y/o - ${resolvedPatient.gender} - Blood type: ${resolvedPatient.bloodType}`}
+              {patient.age} y/o · {patient.gender} · Blood type: {patient.bloodType}
             </p>
           </div>
         </div>
 
-        {loadError && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {loadError}
-          </div>
-        )}
-
+        {/* Bio Info */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-blue-50 rounded-xl px-4 py-3">
             <p className="text-xs text-blue-500 uppercase tracking-wide font-medium mb-0.5">Blood Type</p>
-            <p className="text-sm font-semibold text-blue-900">{resolvedPatient.bloodType}</p>
+            <p className="text-sm font-semibold text-blue-900">{patient.bloodType}</p>
           </div>
           <div className="bg-blue-50 rounded-xl px-4 py-3">
             <p className="text-xs text-blue-500 uppercase tracking-wide font-medium mb-0.5">Date of Birth</p>
-            <p className="text-sm font-semibold text-blue-900">{resolvedPatient.dob}</p>
+            <p className="text-sm font-semibold text-blue-900">{patient.dob}</p>
           </div>
         </div>
 
+        {/* Allergies */}
         <div>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Known Allergies</p>
           <div className="flex flex-wrap gap-2">
-            {resolvedPatient.allergies.length > 0 ? (
-              resolvedPatient.allergies.map((a) => (
-                <span key={a} className="text-xs px-3 py-1 bg-red-50 text-red-700 border border-red-100 rounded-full font-medium">
-                  {a}
-                </span>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No allergies recorded.</p>
-            )}
+            {patient.allergies.map((a) => (
+              <span key={a} className="text-xs px-3 py-1 bg-red-50 text-red-700 border border-red-100 rounded-full font-medium">
+                {a}
+              </span>
+            ))}
           </div>
         </div>
 
         <Separator />
 
+        {/* Visit History */}
         <div>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Visit History</p>
           <div className="space-y-3">
-            {medicalHistory.length > 0 ? (
-              medicalHistory.map((h, i) => (
-                <div key={`${h.date}-${i}`} className="flex gap-3 items-start group">
-                  <div className="flex flex-col items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-full bg-blue-400 mt-1 shrink-0" />
-                    {i < medicalHistory.length - 1 && (
-                      <div className="w-px h-full bg-blue-100 flex-1" style={{ minHeight: 20 }} />
-                    )}
-                  </div>
-                  <div className="flex-1 pb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-foreground">{h.diagnosis}</p>
-                      <span className="text-xs text-muted-foreground shrink-0">{h.date}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">{h.doctor}</p>
-                  </div>
+            {patient.medicalHistory.map((h, i) => (
+              <div key={i} className="flex gap-3 items-start group">
+                <div className="flex flex-col items-center gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-blue-400 mt-1 shrink-0" />
+                  {i < patient.medicalHistory.length - 1 && (
+                    <div className="w-px h-full bg-blue-100 flex-1" style={{ minHeight: 20 }} />
+                  )}
                 </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No visit history found for this facility yet.</p>
-            )}
+                <div className="flex-1 pb-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-foreground">{h.diagnosis}</p>
+                    <span className="text-xs text-muted-foreground shrink-0">{h.date}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">{h.doctor}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
+        {/* QR Section */}
         <div className="border border-dashed border-blue-200 rounded-xl px-4 py-4 flex items-center gap-4">
           <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
             <QrCode className="w-7 h-7 text-blue-600" />
@@ -566,13 +373,15 @@ function ViewRecordsModal({ patient }: { patient: Patient }) {
           <div>
             <p className="text-sm font-semibold text-blue-900">Patient QR Code</p>
             <p className="text-xs text-muted-foreground mt-0.5">Scan to verify identity and access complete record</p>
-            <p className="text-xs font-mono text-blue-500 mt-1">{resolvedPatient.id}</p>
+            <p className="text-xs font-mono text-blue-500 mt-1">{patient.id}</p>
           </div>
         </div>
       </div>
     </DialogContent>
   );
-}function MarkCompleteModal({
+}
+
+function MarkCompleteModal({
   patient,
   onClose,
   onConfirm,
@@ -655,7 +464,14 @@ function EditVitalsModal({
   onClose: () => void;
   onSave: (id: string, vitals: Patient['currentVitals']) => Promise<void>;
 }) {
-  const [vitals, setVitals] = useState(patient.currentVitals);
+  const toEditableVitals = (currentVitals: Patient['currentVitals']) => ({
+    bp: currentVitals.bp === 'N/A' ? '' : currentVitals.bp,
+    hr: currentVitals.hr === 'N/A' ? '' : currentVitals.hr,
+    temp: currentVitals.temp === 'N/A' ? '' : currentVitals.temp,
+    spo2: currentVitals.spo2 === 'N/A' ? '' : currentVitals.spo2,
+  });
+
+  const [vitals, setVitals] = useState(() => toEditableVitals(patient.currentVitals));
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -683,16 +499,42 @@ function EditVitalsModal({
     return numbers ? `${numbers}%` : '';
   };
 
-  const handleSave = () => {
+  const handleSave = (event?: React.FormEvent) => {
+    event?.preventDefault();
     setIsSaving(true);
     setSaveError('');
-    onSave(patient.id, vitals)
-      .catch((error) => {
+    (async () => {
+      try {
+        const session = loadAuthSession && loadAuthSession();
+        const now = new Date().toISOString();
+
+        if (!patient.queueEntryId) throw new Error('No queue entry id for this patient');
+
+        const updatedVitals = await updateQueueEntryVitals({
+          queueEntryId: patient.queueEntryId,
+          vitals: {
+            blood_pressure: vitals.bp,
+            heart_rate: vitals.hr,
+            temperature: vitals.temp,
+            oxygen_saturation: vitals.spo2,
+            vitals_taken_at: now,
+            vitals_taken_by: session?.userId || null,
+          },
+        });
+
+        await onSave(patient.id, {
+          bp: updatedVitals.blood_pressure || 'N/A',
+          hr: updatedVitals.heart_rate || 'N/A',
+          temp: updatedVitals.temperature || 'N/A',
+          spo2: updatedVitals.oxygen_saturation || 'N/A',
+        });
+        onClose();
+      } catch (error) {
         setSaveError(error instanceof Error ? error.message : 'Unable to save vitals.');
-      })
-      .finally(() => {
+      } finally {
         setIsSaving(false);
-      });
+      }
+    })();
   };
 
   return (
@@ -704,7 +546,7 @@ function EditVitalsModal({
         </DialogTitle>
       </DialogHeader>
 
-      <div className="space-y-4">
+      <form className="space-y-4" onSubmit={handleSave}>
         {saveError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {saveError}
@@ -755,18 +597,18 @@ function EditVitalsModal({
         </div>
 
         <div className="flex gap-3 pt-4">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
+          <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
           <Button
+            type="submit"
             className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-            onClick={handleSave}
             disabled={isSaving}
           >
             {isSaving ? 'Saving...' : 'Save Vitals'}
           </Button>
         </div>
-      </div>
+      </form>
     </DialogContent>
   );
 }
@@ -901,7 +743,6 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [queueDate, setQueueDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [doctorAccess, setDoctorAccess] = useState<DoctorQueueAccess | null>(null);
-  const [doctorIdentity, setDoctorIdentity] = useState<DoctorIdentity | null>(null);
   const [facilityFilter, setFacilityFilter] = useState('all');
   const [completionBonusByFacility, setCompletionBonusByFacility] = useState<Record<string, number>>({});
   const [actionError, setActionError] = useState<string | null>(null);
@@ -988,8 +829,6 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         return {
           id: patient?.patient_code || row.id,
           queueEntryId: row.id,
-          patientId: row.patient_id || patient?.id || undefined,
-          patientCode: patient?.patient_code || undefined,
           facilityId: row.facility_id,
           queueDate: row.queue_date,
           name: patient?.full_name || 'Unknown Patient',
@@ -1004,12 +843,14 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
           dob: formatDate(patient?.date_of_birth),
           bloodType: patient?.blood_type || 'N/A',
           allergies: parseAllergies(patient?.allergies),
-          currentVitals: {
-            bp: patient?.bp || 'N/A',
-            hr: patient?.hr || 'N/A',
-            temp: patient?.temp || 'N/A',
-            spo2: patient?.spo2 || 'N/A',
-          },
+            currentVitals: {
+              bp: row.blood_pressure || 'N/A',
+              hr: row.heart_rate || 'N/A',
+              temp: row.temperature || 'N/A',
+              spo2: row.oxygen_saturation || 'N/A',
+            },
+            vitalsTakenAt: row.vitals_taken_at || null,
+            vitalsTakenBy: row.vitals_taken_by || null,
           medicalHistory: [],
           chiefComplaint: triage?.recommendation || triage?.symptoms_text || 'No complaint registered',
           arrivalTime: formatArrivalTime(row.check_in_at),
@@ -1030,7 +871,6 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         return {
           id: row.patient_code || row.id,
           queueEntryId: row.id,
-          patientCode: row.patient_code || undefined,
           queueDate: row.queue_date,
           name: row.patient_name || 'Unknown Patient',
           age: 0,
@@ -1057,33 +897,6 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         };
       };
 
-      const enrichPatientDetails = async (patient: Patient): Promise<Patient> => {
-        const lookupId = patient.patientId;
-        const lookupKey = patient.patientCode || patient.id;
-
-        try {
-          // Queue rows are light; hydrate them from the patient row so age, DOB, and allergies stay in sync.
-          const record = lookupId ? await fetchPatientById(lookupId) : await fetchPatientByQrValue(lookupKey);
-          if (!record) return patient;
-
-          return {
-            ...patient,
-            id: record.patient_code || record.id || patient.id,
-            patientId: record.id || patient.patientId,
-            patientCode: record.patient_code || patient.patientCode,
-            name: record.full_name || patient.name,
-            age: calculateAge(record.date_of_birth),
-            gender: record.gender ? String(record.gender).replace(/^./, (c) => c.toUpperCase()) : patient.gender,
-            dob: formatDate(record.date_of_birth),
-            bloodType: record.blood_type || patient.bloodType,
-            allergies: parseAllergies(record.allergies),
-            phone: record.phone || patient.phone,
-          };
-        } catch {
-          return patient;
-        }
-      };
-
       const facilityId = access.scope === 'facility'
         ? access.facilityId
         : facilityFilter !== 'all'
@@ -1098,8 +911,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
           queueDate,
           ...(facilityId ? { facilityId } : {}),
         });
-        const queuePatients = await Promise.all(queueRows.map(async (row) => enrichPatientDetails(toQueuePatient(row))));
-        setPatients(queuePatients);
+        setPatients(queueRows.map(toQueuePatient));
       } catch (_directQueueError) {
         const viewRows = await fetchProviderQueueDashboard(queueDate);
         const filteredRows =
@@ -1109,8 +921,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
               ? viewRows.filter((row) => row.facility_name === selectedFacility?.name)
               : viewRows;
 
-        const viewPatients = await Promise.all(filteredRows.map(async (row) => enrichPatientDetails(toViewPatient(row))));
-        setPatients(viewPatients);
+        setPatients(filteredRows.map(toViewPatient));
       }
     } catch (error) {
       setFetchError(
@@ -1139,18 +950,6 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     }
   }, [doctorAccess, facilityFilter]);
 
-  useEffect(() => {
-    let isMounted = true;
-    void fetchDoctorIdentity().then((identity) => {
-      if (isMounted) {
-        setDoctorIdentity(identity);
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   const handleAction = (type: ModalType, patient: Patient) => {
     setSelectedPatient(patient);
     setActiveModal(type);
@@ -1172,6 +971,33 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
     setActionError(null);
     try {
+        // Attempt to create a medical record using available similar data before deleting the queue entry.
+        try {
+          await createMedicalRecord({
+            patientId: patient.id,
+            facilityId: patient.facilityId || null,
+            providerId: null,
+            title: `Visit - Queue #${patient.queueNumber}`,
+            description: patient.chiefComplaint || patient.symptoms.join(', '),
+            category: 'Clinical',
+            recordType: 'Visit',
+            status: 'completed',
+            recordDate: new Date().toISOString().slice(0, 10),
+          })
+        } catch (recordError) {
+          const msg = recordError instanceof Error ? recordError.message : String(recordError)
+          // If the failure is due to row-level security (RLS) or permission, don't block deletion.
+          if (msg.toLowerCase().includes('row-level') || msg.toLowerCase().includes('row level') || msg.toLowerCase().includes('violates')) {
+            setActionError('Medical record could not be saved due to permission policy; queue entry will still be removed.')
+          } else {
+            // Non-RLS errors may indicate real problems — surface and abort.
+            setActionError(msg || 'Failed to save medical record before completion.')
+            closeModal();
+            return;
+          }
+        }
+
+        await deleteQueueEntry(patient.queueEntryId);
       await deleteQueueEntry(patient.queueEntryId);
       const bonusKey = patient.facilityId || facilityFilter || 'all';
       setCompletionBonusByFacility((prev) => {
@@ -1196,13 +1022,23 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
   const handleSaveVitals = async (id: string, vitals: Patient['currentVitals']) => {
     setActionError(null);
-    await updatePatientVitals({
-      patientId: id,
-      vitals,
-    });
+    const patient = patients.find((p) => p.id === id);
+    if (!patient) return;
+
+    const session = loadAuthSession && loadAuthSession();
+    const now = new Date().toISOString();
 
     setPatients((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, currentVitals: vitals } : p))
+      prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              currentVitals: vitals,
+              vitalsTakenAt: now,
+              vitalsTakenBy: session?.userId || null,
+            }
+          : p
+      )
     );
 
     setSelectedPatient((current) =>
@@ -1210,6 +1046,8 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         ? {
             ...current,
             currentVitals: vitals,
+            vitalsTakenAt: now,
+            vitalsTakenBy: session?.userId || null,
           }
         : current
     );
@@ -1529,7 +1367,6 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const activeQueueEntries = patients.filter((p) => p.status !== 'completed').length;
   const completedQueueEntries = patients.filter((p) => p.status === 'completed').length + completionBonus;
   const totalQueueEntries = activeQueueEntries + completedQueueEntries;
-  // These counts stay derived from live queue state so refreshes do not reset the dashboard view.
   const inProgressEntries = patients.filter((p) => p.status === 'in-progress').length;
   const waitingEntries = patients.filter((p) => p.status === 'waiting').length;
   const priorityCounts = {
@@ -1605,18 +1442,13 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
               <h1 className="text-base sm:text-lg font-bold text-gray-900">Doctor Dashboard</h1>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="text-sm sm:text-base font-semibold text-gray-900">{doctorIdentity?.fullName || doctorIdentity?.email || 'Doctor'}</p>
-            </div>
-            <button
-              onClick={onBack}
-              className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-xl transition-colors"
-              title="Logout"
-            >
-              <LogOut className="w-5 h-5 text-gray-700" />
-            </button>
-          </div>
+          <button
+            onClick={onBack}
+            className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-xl transition-colors"
+            title="Logout"
+          >
+            <LogOut className="w-5 h-5 text-gray-700" />
+          </button>
         </div>
       </header>
 

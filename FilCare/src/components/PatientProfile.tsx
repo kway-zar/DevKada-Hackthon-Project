@@ -1,7 +1,7 @@
 
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { CheckCircle, Download, Edit3, Loader2, FileText, Image as ImageIcon, Shield, UserCircle, Upload } from 'lucide-react';
+import { CalendarDays, CheckCircle, Download, Edit3, FileText, Loader2, Shield, UserCircle, Upload } from 'lucide-react';
 
 type PatientData = {
   id?: string;
@@ -29,16 +29,17 @@ type PatientData = {
   religion?: string;
   hasInsurance?: string;
   insuranceProvider?: string;
-  medicalRecords?: MedicalRecordAttachment[];
 };
 
-type MedicalRecordAttachment = {
+type MedicalHistoryRecord = {
   id: string;
-  name: string;
-  type: string;
-  size: number;
-  uploadedAt: string;
-  dataUrl?: string;
+  category?: string | null;
+  record_type?: string | null;
+  title?: string | null;
+  description?: string | null;
+  status?: string | null;
+  record_date?: string | null;
+  created_at?: string | null;
 };
 
 interface PatientProfileProps {
@@ -83,39 +84,80 @@ function toFormData(patient?: PatientData | null) {
   };
 }
 
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = bytes;
-  let unit = 0;
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024;
-    unit += 1;
-  }
-  return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
-function getFileKind(type: string) {
-  return type.startsWith('image/') ? 'image' : type === 'application/pdf' ? 'pdf' : 'file';
-}
-
-function isImageLikeFile(file: File) {
-  return file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name);
-}
-
 const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
   const [formData, setFormData] = useState(toFormData(patient));
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
-  const [medicalRecords, setMedicalRecords] = useState<MedicalRecordAttachment[]>(patient?.medicalRecords ?? []);
-  const [isUploadingRecord, setIsUploadingRecord] = useState(false);
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [medicalHistory, setMedicalHistory] = useState<MedicalHistoryRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   useEffect(() => {
     setFormData(toFormData(patient));
-    setMedicalRecords(patient?.medicalRecords ?? []);
   }, [patient]);
+
+  useEffect(() => {
+    if (!patient?.id) {
+      setMedicalHistory([]);
+      setHistoryError('');
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadMedicalHistory = async () => {
+      setHistoryLoading(true);
+      setHistoryError('');
+
+      try {
+        const params = new URLSearchParams({
+          select: 'id,category,record_type,title,description,status,record_date,created_at',
+          patient_id: `eq.${patient.id}`,
+          order: 'record_date.desc,created_at.desc',
+        });
+
+        const response = await fetch(`${getRestBase()}/medical_records?${params.toString()}`, {
+          headers: {
+            apikey: getAnonKey(),
+            Authorization: `Bearer ${getAnonKey()}`,
+          },
+        });
+
+        const text = await response.text();
+        let payload: any = text;
+
+        try {
+          payload = text ? JSON.parse(text) : [];
+        } catch {
+          // Keep the raw response text for the error message below.
+        }
+
+        if (!response.ok) {
+          throw new Error(payload?.message || payload?.hint || text || 'Unable to load medical history');
+        }
+
+        if (!isCancelled) {
+          setMedicalHistory(Array.isArray(payload) ? payload : []);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setMedicalHistory([]);
+          setHistoryError(error instanceof Error ? error.message : 'Unable to load medical history');
+        }
+      } finally {
+        if (!isCancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    };
+
+    void loadMedicalHistory();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [patient?.id]);
 
   const age = useMemo(() => {
     if (!formData.dateOfBirth) return null;
@@ -219,7 +261,6 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
         ...formData,
         name: `${formData.firstName} ${formData.lastName}`.trim(),
         patientCode,
-        medicalRecords,
       };
 
       onPatientUpdated?.(updatedPatient);
@@ -228,56 +269,6 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
       setSaveError(error instanceof Error ? error.message : 'Unexpected update error');
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const readFileAsDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error(`Unable to read ${file.name}`));
-      reader.readAsDataURL(file);
-    });
-
-  const handleUploadRecords = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
-    if (files.length === 0) return;
-
-    setIsUploadingRecord(true);
-    setSaveError('');
-    setSaveSuccess('');
-
-    try {
-      const uploads: MedicalRecordAttachment[] = [];
-      for (const file of files) {
-        uploads.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          name: file.name,
-          type: file.type || 'application/octet-stream',
-          size: file.size,
-          uploadedAt: new Date().toISOString(),
-          dataUrl: isImageLikeFile(file) ? await readFileAsDataUrl(file) : undefined,
-        });
-      }
-
-      const next = [...uploads, ...medicalRecords].slice(0, 12);
-      setMedicalRecords(next);
-      onPatientUpdated?.({
-        ...(patient || {}),
-        ...formData,
-        id: patient?.id,
-        name: `${formData.firstName} ${formData.lastName}`.trim() || patient?.name || '',
-        patientCode,
-        medicalRecords: next,
-      });
-
-      setSaveSuccess('Medical records uploaded.');
-      window.setTimeout(() => setSaveSuccess(''), 3000);
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Unable to upload records');
-    } finally {
-      setIsUploadingRecord(false);
     }
   };
 
@@ -324,7 +315,6 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
         name: `${formData.firstName} ${formData.lastName}`.trim() || patient?.name || '',
         ...formData,
       },
-      medicalRecords,
       qrPayload,
     };
 
@@ -334,140 +324,36 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
       const { jsPDF } = mod as any;
 
       const pdf = new jsPDF();
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 14;
-      const contentWidth = pageWidth - margin * 2;
-      const valueColor = [17, 24, 39] as const;
+      pdf.setFontSize(16);
+      pdf.text('Patient Records', 14, 20);
 
-      const drawHeader = (title: string, subtitle: string) => {
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(18);
-        pdf.setTextColor(17, 24, 39);
-        pdf.text(title, margin, 18);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(10);
-        pdf.setTextColor(100, 116, 139);
-        pdf.text(subtitle, margin, 24);
-      };
+      const lines = [
+        `Name: ${payload.patient.name}`,
+        `Patient Code: ${payload.patient.patientCode}`,
+        `DOB: ${payload.patient.dateOfBirth || ''}`,
+        `Gender: ${payload.patient.gender || ''}`,
+        `Phone: ${payload.patient.phone || ''}`,
+        `Email: ${payload.patient.email || ''}`,
+        `Address: ${[payload.patient.address, payload.patient.city, payload.patient.zipCode].filter(Boolean).join(', ')}`,
+      ];
 
-
-      const drawField = (label: string, value: string, x: number, y: number, width: number) => {
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(9);
-        pdf.setTextColor(71, 85, 105);
-        pdf.text(label, x, y);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(10);
-        pdf.setTextColor(...valueColor);
-        const wrapped = pdf.splitTextToSize(value || 'N/A', width);
-        pdf.text(wrapped, x, y + 5);
-        return y + 5 + wrapped.length * 4.5 + 2;
-      };
-
-      const drawSection = (title: string, startY: number) => {
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(11);
-        pdf.setTextColor(15, 23, 42);
-        pdf.text(title, margin, startY);
-        pdf.setDrawColor(226, 232, 240);
-        pdf.line(margin, startY + 2, pageWidth - margin, startY + 2);
-        return startY + 8;
-      };
-
-      const safeValue = (value: unknown) =>
-        value === null || value === undefined || String(value).trim() === '' ? 'N/A' : String(value);
-
-      drawHeader('Patient Records', `${payload.patient.name} - ${payload.patient.patientCode}`);
-
-      const identityTop = 30;
-      pdf.setDrawColor(226, 232, 240);
-      pdf.roundedRect(margin, identityTop, contentWidth, 32, 3, 3, 'S');
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(71, 85, 105);
-      pdf.text('Full Name', margin + 4, identityTop + 8);
-      pdf.text('Patient Code', margin + 4, identityTop + 21);
-      pdf.text('Date of Birth', margin + contentWidth / 2 + 4, identityTop + 8);
-      pdf.text('Gender', margin + contentWidth / 2 + 4, identityTop + 21);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(10);
-      pdf.setTextColor(...valueColor);
-      pdf.text(safeValue(payload.patient.name), margin + 24, identityTop + 8);
-      pdf.text(safeValue(payload.patient.patientCode), margin + 27, identityTop + 21);
-      pdf.text(safeValue(payload.patient.dateOfBirth), margin + contentWidth / 2 + 24, identityTop + 8);
-      pdf.text(safeValue(payload.patient.gender), margin + contentWidth / 2 + 17, identityTop + 21);
-
-      let y = 72;
-      y = drawSection('Contact Information', y);
-      y = drawField('Phone', safeValue(payload.patient.phone), margin, y, contentWidth);
-      y = drawField('Email', safeValue(payload.patient.email), margin, y, contentWidth);
-      y = drawField('Address', safeValue([payload.patient.address, payload.patient.city, payload.patient.zipCode].filter(Boolean).join(', ')), margin, y, contentWidth);
-
-      y += 2;
-      y = drawSection('Medical Information', y);
-      y = drawField('Blood Type', safeValue(payload.patient.bloodType), margin, y, contentWidth);
-      y = drawField('Allergies', safeValue(payload.patient.allergies), margin, y, contentWidth);
-      y = drawField('Current Medications', safeValue(payload.patient.medications), margin, y, contentWidth);
-      y = drawField('Emergency Contact', safeValue(payload.patient.emergencyContact), margin, y, contentWidth);
-      y = drawField('Emergency Phone', safeValue(payload.patient.emergencyPhone), margin, y, contentWidth);
+      let y = 30;
+      pdf.setFontSize(11);
+      for (const line of lines) {
+        pdf.text(line, 14, y);
+        y += 7;
+      }
 
       // embed QR image if available
       try {
         const svg = qrRef.current?.querySelector('svg') as SVGSVGElement | null;
         if (svg) {
           const pngData = await svgElementToPngDataUrl(svg);
-          pdf.addImage(pngData, 'PNG', pageWidth - 52, 12, 38, 38);
+          // place image top-right
+          pdf.addImage(pngData, 'PNG', 140, 10, 50, 50);
         }
       } catch (e) {
         // ignore QR embed failures
-      }
-
-      if (medicalRecords.length > 0) {
-        pdf.addPage();
-        drawHeader('Uploaded Medical Records', `${patientCode} - ${medicalRecords.length} file${medicalRecords.length === 1 ? '' : 's'}`);
-
-        let recordY = 30;
-        const ensureSpace = (needed: number) => {
-          if (recordY + needed <= pageHeight - margin) return;
-          pdf.addPage();
-          drawHeader('Uploaded Medical Records', `${patientCode} - continued`);
-          recordY = 30;
-        };
-
-        medicalRecords.forEach((record, index) => {
-          const isImage = getFileKind(record.type) === 'image';
-          const blockHeight = isImage && record.dataUrl ? 44 : 22;
-          ensureSpace(blockHeight);
-
-          pdf.setDrawColor(226, 232, 240);
-          pdf.roundedRect(margin, recordY, contentWidth, blockHeight - 2, 3, 3, 'S');
-
-          if (isImage && record.dataUrl) {
-            const imageFormat = record.dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-            pdf.addImage(record.dataUrl, imageFormat, margin + 4, recordY + 4, 30, 30);
-            pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(10);
-            pdf.setTextColor(15, 23, 42);
-            pdf.text(record.name, margin + 40, recordY + 10);
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(9);
-            pdf.setTextColor(71, 85, 105);
-            pdf.text(`Image - ${formatBytes(record.size)}`, margin + 40, recordY + 16);
-            pdf.text(`Uploaded ${new Date(record.uploadedAt).toLocaleString()}`, margin + 40, recordY + 22);
-          } else {
-            pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(10);
-            pdf.setTextColor(15, 23, 42);
-            pdf.text(`${index + 1}. ${record.name}`, margin + 4, recordY + 8);
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(9);
-            pdf.setTextColor(71, 85, 105);
-            pdf.text(`${record.type || 'file'} - ${formatBytes(record.size)} - ${new Date(record.uploadedAt).toLocaleString()}`, margin + 4, recordY + 14);
-          }
-
-          recordY += blockHeight + 4;
-        });
       }
 
       pdf.save(`${patientCode}-records.pdf`);
@@ -616,34 +502,50 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
 
             <div>
               <div className="flex items-center justify-between gap-3 mb-4">
-                <h2 className="text-xl font-bold text-gray-900">Uploaded Medical Records</h2>
-                <span className="text-sm text-gray-500">{medicalRecords.length} file{medicalRecords.length === 1 ? '' : 's'}</span>
+                <h2 className="text-xl font-bold text-gray-900">Medical History</h2>
+                {historyLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
               </div>
-              <div className="space-y-3">
-                {medicalRecords.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-500">
-                    No files uploaded yet. Add images or PDFs to include them in the downloadable record.
+
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                {historyError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {historyError}
                   </div>
-                ) : (
-                  medicalRecords.map((record) => {
-                    const isImage = getFileKind(record.type) === 'image';
-                    return (
-                      <div key={record.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600 shrink-0">
-                          {isImage ? <ImageIcon className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+                )}
+
+                {!historyError && historyLoading && (
+                  <div className="text-sm text-gray-500">Loading medical history...</div>
+                )}
+
+                {!historyError && !historyLoading && medicalHistory.length === 0 && (
+                  <div className="text-sm text-gray-500">No medical history records found for this patient.</div>
+                )}
+
+                {!historyError && !historyLoading && medicalHistory.length > 0 && (
+                  <div className="space-y-3">
+                    {medicalHistory.map((record) => (
+                      <div key={record.id} className="rounded-lg border border-gray-200 bg-white p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 shrink-0 text-blue-600" />
+                              <p className="font-semibold text-gray-900">{record.title || 'Untitled record'}</p>
+                            </div>
+                            <p className="mt-1 text-xs font-medium text-gray-500">
+                              {[record.category, record.record_type, record.status].filter(Boolean).join(' / ') || 'Medical record'}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1 text-xs text-gray-500">
+                            <CalendarDays className="h-3.5 w-3.5" />
+                            {record.record_date ? new Date(record.record_date).toLocaleDateString() : 'No date'}
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium text-gray-900">{record.name}</p>
-                          <p className="text-xs text-gray-500">
-                            {record.type || 'file'} - {formatBytes(record.size)}
-                          </p>
-                        </div>
-                        {isImage && record.dataUrl && (
-                          <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">Preview ready</span>
+                        {record.description && (
+                          <p className="mt-3 text-sm leading-relaxed text-gray-700">{record.description}</p>
                         )}
                       </div>
-                    );
-                  })
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -669,22 +571,9 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
             )}
 
             <div className="flex flex-col sm:flex-row gap-4 mt-6">
-              <input
-                ref={uploadInputRef}
-                type="file"
-                accept="image/*,application/pdf"
-                multiple
-                className="hidden"
-                onChange={handleUploadRecords}
-              />
-              <button
-                type="button"
-                onClick={() => uploadInputRef.current?.click()}
-                disabled={isUploadingRecord}
-                className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 transition font-semibold"
-              >
+              <button type="button" className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold">
                 <Upload className="h-5 w-5" />
-                {isUploadingRecord ? 'Uploading...' : 'Upload Medical Records'}
+                Upload Medical Records
               </button>
               <button
                 type="button"
@@ -739,4 +628,3 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
 };
 
 export default PatientProfile;
-

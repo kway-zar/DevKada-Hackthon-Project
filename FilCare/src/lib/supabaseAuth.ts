@@ -33,7 +33,6 @@ export interface ProviderQueueDashboardRow {
 export interface QueueEntryDashboardRow {
   id: string
   facility_id: string
-  patient_id?: string | null
   queue_date: string
   queue_number: number
   priority: 'P1' | 'P2' | 'P3'
@@ -44,7 +43,6 @@ export interface QueueEntryDashboardRow {
   completed_at: string | null
   estimated_wait_minutes: number | null
   patients?: {
-    id?: string | null
     patient_code?: string | null
     full_name?: string | null
     gender?: string | null
@@ -52,11 +50,13 @@ export interface QueueEntryDashboardRow {
     phone?: string | null
     date_of_birth?: string | null
     allergies?: string | null
-    bp?: string | null
-    hr?: string | null
-    temp?: string | null
-    spo2?: string | null
   } | null
+  blood_pressure?: string | null
+  heart_rate?: string | null
+  temperature?: string | null
+  oxygen_saturation?: string | null
+  vitals_taken_at?: string | null
+  vitals_taken_by?: string | null
   facilities?: {
     name?: string | null
   } | null
@@ -69,13 +69,6 @@ export interface QueueEntryDashboardRow {
 export interface ProviderFacility {
   id: string
   name: string
-}
-
-export interface DoctorIdentity {
-  fullName: string
-  email: string
-  role: AuthRole
-  facilityName: string | null
 }
 
 export interface DoctorQueueAccess {
@@ -98,24 +91,6 @@ export interface QueueFacility {
   phone?: string | null
   emergency_hotline?: string | null
   rating?: number | null
-}
-
-export interface PatientMedicalRecordRow {
-  id: string
-  patient_id: string
-  facility_id: string | null
-  category: string
-  record_type: string
-  title: string
-  description: string | null
-  status: string
-  record_date: string
-  file_name: string | null
-  file_url: string | null
-  mime_type: string | null
-  created_at: string
-  facility_name?: string | null
-  provider_name?: string | null
 }
 
 type SelectableFacility = {
@@ -161,10 +136,6 @@ export interface RegisteredPatientRow {
   medications?: string | null
   emergency_contact_name?: string | null
   emergency_contact_phone?: string | null
-  bp?: string | null
-  hr?: string | null
-  temp?: string | null
-  spo2?: string | null
   created_at?: string | null
 }
 
@@ -263,21 +234,6 @@ export async function signInWithPassword(email: string, password: string): Promi
     throw new Error('Invalid credentials.');
   }
 
-  let profileFullName: string | null = null;
-  try {
-    const profileResponse = await fetch(
-      `${restBase}/profiles?select=full_name&email=eq.${encodeURIComponent(email.trim())}&limit=1`,
-      { headers: getAuthHeaders() }
-    );
-    const profilePayload = await readJson<any>(profileResponse);
-    if (profileResponse.ok) {
-      const profile = Array.isArray(profilePayload) ? profilePayload[0] : profilePayload;
-      profileFullName = profile?.full_name || null;
-    }
-  } catch {
-    profileFullName = null;
-  }
-
   return {
     // Until real Supabase Auth JWT is implemented, use anon key to avoid invalid token 401s.
     accessToken: getAnonKey(),
@@ -286,7 +242,7 @@ export async function signInWithPassword(email: string, password: string): Promi
     userId: account.id,
     email: account.email,
     role: (account.account_type || 'patient') as AuthRole, // Assigned automatically by the DB trigger
-    fullName: `Dr. ${profileFullName || account.patients?.full_name || account.email.split('@')[0] || 'Doctor'}`
+    fullName: account.patients?.full_name || "Staff Member"
   };
 }
 
@@ -390,27 +346,6 @@ export async function fetchProviderFacility(): Promise<ProviderFacility | null> 
   const session = loadAuthSession()
   if (!session?.userId) return null
 
-  const accountParams = new URLSearchParams({
-    select: 'provider_id,providers!accounts_provider_id_fkey(facility_id,facilities(name))',
-    id: `eq.${session.userId}`,
-    limit: '1',
-  })
-  const accountResponse = await fetch(`${restBase}/accounts?${accountParams.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  const accountPayload = await readJson<any>(accountResponse)
-
-  if (accountResponse.ok) {
-    const account = Array.isArray(accountPayload) ? accountPayload[0] : accountPayload
-    const facilityId = account?.providers?.facility_id
-    if (facilityId) {
-      return {
-        id: facilityId,
-        name: account?.providers?.facilities?.name || 'Assigned facility',
-      }
-    }
-  }
-
   const providerParams = new URLSearchParams({
     select: 'facility_id,facilities(name)',
     user_id: `eq.${session.userId}`,
@@ -421,68 +356,18 @@ export async function fetchProviderFacility(): Promise<ProviderFacility | null> 
   })
   const providerPayload = await readJson<any>(providerResponse)
 
-  if (!providerResponse.ok) return null
-  const provider = Array.isArray(providerPayload) ? providerPayload[0] : providerPayload
-  if (!provider?.facility_id) return null
-
-  return {
-    id: provider.facility_id,
-    name: provider?.facilities?.name || 'Assigned facility',
-  }
-}
-
-export async function fetchDoctorIdentity(): Promise<DoctorIdentity | null> {
-  const restBase = getRestApiBase()
-  const session = loadAuthSession()
-  if (!session?.userId) return null
-  const doctorDisplayName = `Dr. ${session.email.split('@')[0] || 'Doctor'}`
-
-  const profileParams = new URLSearchParams({
-    select: 'full_name,role,email',
-    user_id: `eq.${session.userId}`,
-    limit: '1',
-  })
-  const profileResponse = await fetch(`${restBase}/profiles?${profileParams.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  const profilePayload = await readJson<any>(profileResponse)
-  if (profileResponse.ok) {
-    const profile = Array.isArray(profilePayload) ? profilePayload[0] : profilePayload
-    if (profile?.full_name) {
-      const providerFacility = await fetchProviderFacility()
+  if (providerResponse.ok) {
+    const provider = Array.isArray(providerPayload) ? providerPayload[0] : providerPayload
+    if (provider?.facility_id) {
       return {
-        fullName: doctorDisplayName,
-        email: profile.email || session.email,
-        role: (profile.role || session.role) as AuthRole,
-        facilityName: providerFacility?.name || null,
-      }
-    }
-  }
-
-  const emailProfileParams = new URLSearchParams({
-    select: 'full_name,role,email',
-    email: `eq.${session.email}`,
-    limit: '1',
-  })
-  const emailProfileResponse = await fetch(`${restBase}/profiles?${emailProfileParams.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  const emailProfilePayload = await readJson<any>(emailProfileResponse)
-  if (emailProfileResponse.ok) {
-    const profile = Array.isArray(emailProfilePayload) ? emailProfilePayload[0] : emailProfilePayload
-    if (profile?.full_name) {
-      const providerFacility = await fetchProviderFacility()
-      return {
-        fullName: doctorDisplayName,
-        email: profile.email || session.email,
-        role: (profile.role || session.role) as AuthRole,
-        facilityName: providerFacility?.name || null,
+        id: provider.facility_id,
+        name: provider?.facilities?.name || 'Assigned facility',
       }
     }
   }
 
   const accountParams = new URLSearchParams({
-    select: 'email,account_type,providers!accounts_provider_id_fkey(facility_id,facilities(name))',
+    select: 'provider_id',
     id: `eq.${session.userId}`,
     limit: '1',
   })
@@ -490,69 +375,29 @@ export async function fetchDoctorIdentity(): Promise<DoctorIdentity | null> {
     headers: getAuthHeaders(),
   })
   const accountPayload = await readJson<any>(accountResponse)
-  if (accountResponse.ok) {
-    const account = Array.isArray(accountPayload) ? accountPayload[0] : accountPayload
-    const providerFacilityName = account?.providers?.facilities?.name || null
-    if (account?.email) {
-      return {
-        fullName: doctorDisplayName,
-        email: account.email,
-        role: (account.account_type || session.role) as AuthRole,
-        facilityName: providerFacilityName,
-      }
-    }
-  }
 
-  return {
-    fullName: `Dr. ${session.email.split('@')[0] || 'Doctor'}`,
-    email: session.email,
-    role: session.role,
-    facilityName: null,
-  }
-}
+  if (!accountResponse.ok) return null
+  const account = Array.isArray(accountPayload) ? accountPayload[0] : accountPayload
+  if (!account?.provider_id) return null
 
-export async function fetchPatientMedicalRecords(input: {
-  patientIdOrCode: string
-  facilityId?: string | null
-}): Promise<PatientMedicalRecordRow[]> {
-  const restBase = getRestApiBase()
-  const trimmed = input.patientIdOrCode.trim()
-  if (!trimmed) return []
-
-  let patientId = trimmed
-  if (!isUuid(trimmed)) {
-    const patientLookup = await fetchPatientByQrValue(trimmed)
-    if (!patientLookup) return []
-    patientId = patientLookup.id
-  }
-
-  const params = new URLSearchParams({
-    select:
-      'id,patient_id,facility_id,provider_id,appointment_id,category,record_type,title,description,status,record_date,file_name,file_url,mime_type,created_at,facilities(name)',
-    patient_id: `eq.${patientId}`,
-    order: 'record_date.desc,created_at.desc',
-    limit: '20',
+  const accountProviderParams = new URLSearchParams({
+    select: 'facility_id,facilities(name)',
+    id: `eq.${account.provider_id}`,
+    limit: '1',
   })
-
-  if (input.facilityId) {
-    params.set('facility_id', `eq.${input.facilityId}`)
-  }
-
-  const response = await fetch(`${restBase}/medical_records?${params.toString()}`, {
+  const accountProviderResponse = await fetch(`${restBase}/providers?${accountProviderParams.toString()}`, {
     headers: getAuthHeaders(),
   })
-  const payload = await readJson<any>(response)
-  if (!response.ok) {
-    throw new Error(payload?.message || payload?.hint || 'Failed to load medical records')
-  }
+  const accountProviderPayload = await readJson<any>(accountProviderResponse)
 
-  return Array.isArray(payload)
-    ? payload.map((item) => ({
-        ...item,
-        facility_name: item.facilities?.name || null,
-        provider_name: null,
-      })) as PatientMedicalRecordRow[]
-    : []
+  if (!accountProviderResponse.ok) return null
+  const accountProvider = Array.isArray(accountProviderPayload) ? accountProviderPayload[0] : accountProviderPayload
+  if (!accountProvider?.facility_id) return null
+
+  return {
+    id: accountProvider.facility_id,
+    name: accountProvider?.facilities?.name || 'Assigned facility',
+  }
 }
 
 export async function fetchQueueEntries(input: {
@@ -562,7 +407,7 @@ export async function fetchQueueEntries(input: {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
     select:
-      'id,facility_id,patient_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,patients(id,patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies,bp,hr,temp,spo2),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
+      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,blood_pressure,heart_rate,temperature,oxygen_saturation,vitals_taken_at,vitals_taken_by,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
     queue_date: `eq.${input.queueDate}`,
     order: 'priority.asc,queue_number.asc',
   })
@@ -632,35 +477,104 @@ export async function deleteQueueEntry(queueEntryId: string) {
     throw new Error('Queue entry was not deleted. Check Supabase delete policy for queue_entries.')
   }
 }
-
-export async function updatePatientVitals(input: {
-  patientId: string
+export async function updateQueueEntryVitals(input: {
+  queueEntryId: string
   vitals: {
-    bp: string
-    hr: string
-    temp: string
-    spo2: string
+    blood_pressure: string
+    heart_rate: string
+    temperature: string
+    oxygen_saturation: string
+    vitals_taken_at?: string | null
+    vitals_taken_by?: string | null
   }
 }) {
-  const restBase = getRestApiBase()
-  const response = await fetch(`${restBase}/patients?id=eq.${encodeURIComponent(input.patientId)}`, {
-    method: 'PATCH',
-    headers: {
-      ...getAuthHeaders(),
-      Prefer: 'return=minimal',
-    },
-    body: JSON.stringify({
-      bp: input.vitals.bp || null,
-      hr: input.vitals.hr || null,
-      temp: input.vitals.temp || null,
-      spo2: input.vitals.spo2 || null,
-    }),
+  const restApiBase =
+    ((import.meta.env.VITE_SUPABASE_REST_API as string | undefined)?.trim() || DEFAULT_REST_API).replace(/\/?$/, '/')
+  const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || getAnonKey()
+  const body: Record<string, string | null> = {
+    blood_pressure: normalizeVitalValue(input.vitals.blood_pressure),
+    heart_rate: normalizeVitalValue(input.vitals.heart_rate),
+    temperature: normalizeVitalValue(input.vitals.temperature),
+    oxygen_saturation: normalizeVitalValue(input.vitals.oxygen_saturation),
+    vitals_taken_at: input.vitals.vitals_taken_at || new Date().toISOString(),
+  }
+
+  // vitals_taken_by references auth.users. The current app login uses the custom
+  // accounts table unless a real Supabase Auth JWT is present, so avoid sending an
+  // accounts.id value that would violate the foreign key.
+  const session = loadAuthSession()
+  const accessToken =
+    session?.accessToken && session.accessToken !== anonKey && isLikelyJwt(session.accessToken)
+      ? session.accessToken
+      : undefined
+  if (accessToken && input.vitals.vitals_taken_by) {
+    body.vitals_taken_by = input.vitals.vitals_taken_by
+  }
+
+  const params = new URLSearchParams({
+    id: `eq.${input.queueEntryId}`,
+    select: 'id,blood_pressure,heart_rate,temperature,oxygen_saturation,vitals_taken_at',
+  })
+  const url = `${restApiBase}queue_entries?${params.toString()}`
+  console.info('[FilCare] Saving queue entry vitals via REST PATCH', {
+    queueEntryId: input.queueEntryId,
+    url,
+    body,
   })
 
-  const payload = await readJson<any>(response)
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${accessToken || anonKey}`,
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(body),
+  })
+  const responseText = await response.text()
+
+  console.info('[FilCare] Queue entry vitals PATCH response', {
+    queueEntryId: input.queueEntryId,
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    body: responseText,
+  })
+
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.hint || 'Failed to update patient vitals')
+    let errorData: any = responseText
+
+    try {
+      errorData = responseText ? JSON.parse(responseText) : responseText
+    } catch {
+      // Keep the raw text when the response is not JSON.
+    }
+
+    console.error('Error updating queue entry vitals:', errorData)
+    throw new Error(errorData?.message || errorData?.hint || 'Failed to update queue entry vitals')
   }
+
+  let updatedRows: any = []
+
+  try {
+    updatedRows = responseText ? JSON.parse(responseText) : []
+  } catch {
+    updatedRows = []
+  }
+
+  if (!Array.isArray(updatedRows) || !updatedRows[0]) {
+    throw new Error(
+      `Supabase accepted the vitals PATCH but returned no updated queue_entries row for id ${input.queueEntryId}. This usually means the hosted database RLS/update policy is blocking anon updates for queue_entries or the id does not match a visible row.`
+    )
+  }
+
+  return updatedRows[0]
+}
+
+function normalizeVitalValue(value: string) {
+  const trimmed = value.trim()
+  return trimmed && trimmed.toUpperCase() !== 'N/A' ? trimmed : null
 }
 
 export async function fetchRegisteredPatients(): Promise<RegisteredPatientRow[]> {
@@ -688,15 +602,9 @@ export async function fetchPatientByQrValue(value: string): Promise<RegisteredPa
   if (!trimmed) return null
 
   const restBase = getRestApiBase()
-  // Prefer patient_code for queue/portal lookups; only touch qr_token when the input is a real UUID.
-  const filters = [`patient_code.eq.${trimmed}`]
-  if (isUuid(trimmed)) {
-    filters.unshift(`qr_token.eq.${trimmed}`)
-    filters.push(`id.eq.${trimmed}`)
-  }
   const params = new URLSearchParams({
     select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
-    or: `(${filters.join(',')})`,
+    or: `(qr_token.eq.${trimmed},patient_code.eq.${trimmed},id.eq.${trimmed})`,
     limit: '1',
   })
 
@@ -707,29 +615,6 @@ export async function fetchPatientByQrValue(value: string): Promise<RegisteredPa
   const payload = await readJson<any>(response)
   if (!response.ok) {
     throw new Error(payload?.message || payload?.hint || 'Failed to load patient QR record')
-  }
-
-  return Array.isArray(payload) && payload[0] ? (payload[0] as RegisteredPatientRow) : null
-}
-
-export async function fetchPatientById(id: string): Promise<RegisteredPatientRow | null> {
-  const trimmed = id.trim()
-  if (!trimmed || !isUuid(trimmed)) return null
-
-  const restBase = getRestApiBase()
-  const params = new URLSearchParams({
-    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
-    id: `eq.${trimmed}`,
-    limit: '1',
-  })
-
-  const response = await fetch(`${restBase}/patients?${params.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-
-  const payload = await readJson<any>(response)
-  if (!response.ok) {
-    throw new Error(payload?.message || payload?.hint || 'Failed to load patient record')
   }
 
   return Array.isArray(payload) && payload[0] ? (payload[0] as RegisteredPatientRow) : null
@@ -1044,6 +929,118 @@ export async function createTriageQueueEntry(input: {
     queue: Array.isArray(queuePayload) ? queuePayload[0] : queuePayload,
     facility: resolvedFacility,
   }
+}
+
+export async function createMedicalRecord(input: {
+  patientId: string
+  facilityId?: string | null
+  providerId?: string | null
+  title: string
+  description?: string | null
+  category?: string
+  recordType?: string
+  status?: string
+  recordDate?: string
+}) {
+  const restApiBase = ((import.meta.env.VITE_SUPABASE_REST_API as string | undefined)?.trim() || DEFAULT_REST_API).replace(/\/\/?$/, '/')
+  const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || getAnonKey()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    apikey: anonKey,
+    Authorization: `Bearer ${anonKey}`,
+    Prefer: 'return=representation',
+  }
+
+  // Resolve patient identifier to UUID when necessary (patient_code or other token may be present)
+  let patientUuid = input.patientId
+  if (!isUuid(patientUuid)) {
+    try {
+      // First, try to lookup by patient_code
+      const byCodeParams = new URLSearchParams({
+        select: 'id',
+        patient_code: `eq.${input.patientId}`,
+        limit: '1',
+      })
+      const byCodeResp = await fetch(`${restApiBase}patients?${byCodeParams.toString()}`, {
+        headers,
+      })
+      const byCodePayload = await readJson<any>(byCodeResp)
+      if (byCodeResp.ok && Array.isArray(byCodePayload) && byCodePayload[0]?.id) {
+        patientUuid = byCodePayload[0].id
+      } else {
+        // Fallback: try to lookup directly by id (in case the input was an id-like token)
+        const byIdParams = new URLSearchParams({
+          select: 'id',
+          id: `eq.${input.patientId}`,
+          limit: '1',
+        })
+        const byIdResp = await fetch(`${restApiBase}patients?${byIdParams.toString()}`, {
+          headers,
+        })
+        const byIdPayload = await readJson<any>(byIdResp)
+        if (byIdResp.ok && Array.isArray(byIdPayload) && byIdPayload[0]?.id) {
+          patientUuid = byIdPayload[0].id
+        } else {
+          throw new Error('Unable to resolve patient identifier to UUID')
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to resolve patient identifier to UUID'
+      throw new Error(message)
+    }
+  }
+
+  const payload = {
+    patient_id: patientUuid,
+    provider_id: input.providerId || null,
+    facility_id: input.facilityId || null,
+    category: input.category || 'Clinical',
+    record_type: input.recordType || 'Visit',
+    title: input.title,
+    description: input.description || null,
+    status: input.status || 'completed',
+    record_date: input.recordDate || new Date().toISOString().slice(0, 10),
+  }
+
+  const url = `${restApiBase}medical_records`
+  console.info('[FilCare] Creating medical record via REST POST', {
+    url,
+    payload,
+    hasAnonKey: Boolean(anonKey),
+  })
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  })
+
+  const responseText = await response.text()
+  let data: any = responseText
+
+  try {
+    data = responseText ? JSON.parse(responseText) : responseText
+  } catch {
+    // Keep the raw text when the response is not JSON.
+  }
+
+  console.info('[FilCare] Medical record POST response', {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    body: data,
+  })
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Unauthorized creating medical record. Confirm VITE_SUPABASE_ANON_KEY is current and the hosted database grants anon insert on medical_records.')
+    }
+    throw new Error(data?.message || data?.hint || 'Failed to create medical record')
+  }
+
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row || !row.id) throw new Error('Medical record API returned no created row')
+  return row
 }
 
 export async function fetchPatientQueueStatus(queueEntryId: string): Promise<{
