@@ -38,11 +38,14 @@ export function AuthModal({ open, onOpenChange, defaultUserType, onAuthSuccess }
 
     try {
       const session = await signInWithPassword(email, password);
-      // If this modal was opened specifically for providers, ensure the
-      // authenticated account is actually a provider. If not, show an error
-      // and do not call onAuthSuccess (so nothing is stored or used to proceed).
+      // Keep patient and provider entry points separate so the wrong portal cannot open.
       if (defaultUserType === 'provider' && session.role !== 'provider') {
         setError('This account is not a provider account. Please use a provider account to continue.');
+        return;
+      }
+
+      if (defaultUserType === 'patient' && session.role !== 'patient') {
+        setError('This account is not a patient account. Please use a patient account to continue.');
         return;
       }
       onAuthSuccess?.(session);
