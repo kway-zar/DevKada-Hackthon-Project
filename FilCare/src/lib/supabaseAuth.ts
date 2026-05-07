@@ -33,6 +33,7 @@ export interface ProviderQueueDashboardRow {
 export interface QueueEntryDashboardRow {
   id: string
   facility_id: string
+  patient_id: string
   queue_date: string
   queue_number: number
   priority: 'P1' | 'P2' | 'P3'
@@ -139,6 +140,17 @@ export interface RegisteredPatientRow {
   created_at?: string | null
 }
 
+export interface MedicalHistoryRow {
+  id: string
+  category?: string | null
+  record_type?: string | null
+  title?: string | null
+  description?: string | null
+  status?: string | null
+  record_date?: string | null
+  created_at?: string | null
+}
+
 
 
 const DEFAULT_REST_API = 'https://mhahfguiqnaczorujmhd.supabase.co/rest/v1/'
@@ -176,6 +188,80 @@ function isLikelyJwt(token?: string) {
   if (!token) return false
   const trimmed = token.trim()
   return trimmed.split('.').length === 3
+}
+
+async function resolvePatientUuid(patientIdentifier: string) {
+  const restApiBase = getRestApiBase()
+  const anonKey = getAnonKey()
+  const session = loadAuthSession()
+  const accessToken = session?.accessToken && session.accessToken !== anonKey && isLikelyJwt(session.accessToken) ? session.accessToken : undefined
+  const headers = {
+    'Content-Type': 'application/json',
+    apikey: anonKey,
+    Authorization: `Bearer ${accessToken || anonKey}`,
+  }
+
+  if (isUuid(patientIdentifier)) return patientIdentifier
+
+  const byCodeParams = new URLSearchParams({
+    select: 'id',
+    patient_code: `eq.${patientIdentifier}`,
+    limit: '1',
+  })
+  const byCodeResp = await fetch(`${restApiBase}/patients?${byCodeParams.toString()}`, { headers })
+  const byCodePayload = await readJson<any>(byCodeResp)
+  if (byCodeResp.ok && Array.isArray(byCodePayload) && byCodePayload[0]?.id) {
+    return String(byCodePayload[0].id)
+  }
+
+  const byIdParams = new URLSearchParams({
+    select: 'id',
+    id: `eq.${patientIdentifier}`,
+    limit: '1',
+  })
+  const byIdResp = await fetch(`${restApiBase}/patients?${byIdParams.toString()}`, { headers })
+  const byIdPayload = await readJson<any>(byIdResp)
+  if (byIdResp.ok && Array.isArray(byIdPayload) && byIdPayload[0]?.id) {
+    return String(byIdPayload[0].id)
+  }
+
+  throw new Error('Unable to resolve patient identifier to UUID')
+}
+
+export async function fetchPatientMedicalHistory(patientIdentifier: string): Promise<MedicalHistoryRow[]> {
+  const restApiBase = getRestApiBase()
+  const patientUuid = await resolvePatientUuid(patientIdentifier)
+  const params = new URLSearchParams({
+    select: 'id,category,record_type,title,description,status,record_date,created_at',
+    patient_id: `eq.${patientUuid}`,
+    order: 'record_date.desc,created_at.desc',
+  })
+
+  const session = loadAuthSession()
+  const anonKey = getAnonKey()
+  const accessToken = session?.accessToken && session.accessToken !== anonKey && isLikelyJwt(session.accessToken) ? session.accessToken : undefined
+
+  const response = await fetch(`${restApiBase}/medical_records?${params.toString()}`, {
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${accessToken || anonKey}`,
+    },
+  })
+
+  const text = await response.text()
+  let payload: any = text
+
+  try {
+    payload = text ? JSON.parse(text) : []
+  } catch {
+    // Keep raw text for the error below.
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.hint || text || 'Unable to load medical history')
+  }
+
+  return Array.isArray(payload) ? (payload as MedicalHistoryRow[]) : []
 }
 
 
@@ -407,7 +493,7 @@ export async function fetchQueueEntries(input: {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
     select:
-      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,blood_pressure,heart_rate,temperature,oxygen_saturation,vitals_taken_at,vitals_taken_by,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
+      'id,facility_id,patient_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,blood_pressure,heart_rate,temperature,oxygen_saturation,vitals_taken_at,vitals_taken_by,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
     queue_date: `eq.${input.queueDate}`,
     order: 'priority.asc,queue_number.asc',
   })
