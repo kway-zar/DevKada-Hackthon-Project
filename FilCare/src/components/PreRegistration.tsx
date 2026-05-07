@@ -64,17 +64,24 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
     setSubmitError('');
     const { name, value } = e.target;
     let finalValue = value;
-    
+
     // Limit phone numbers to 11 digits
     if (name === 'phone' || name === 'emergencyPhone' || name === 'guardianPhone') {
       finalValue = value.replace(/\D/g, '').slice(0, 11);
     }
-    
-    setFormData((prev) => ({
-      ...prev,
-      [name]: finalValue,
-      insuranceProvider: name === 'hasInsurance' && value === 'no' ? '' : prev.insuranceProvider,
-    }));
+
+    setFormData((prev) => {
+      const nextFormData = {
+        ...prev,
+        [name]: finalValue,
+      };
+
+      if (name === 'hasInsurance' && value === 'no') {
+        nextFormData.insuranceProvider = '';
+      }
+
+      return nextFormData;
+    });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

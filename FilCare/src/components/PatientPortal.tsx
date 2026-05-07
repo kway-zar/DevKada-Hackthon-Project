@@ -6,7 +6,7 @@ import { PreRegistration } from './PreRegistration';
 import { FacilityFinder } from './FacilityFinder';
 import { PatientQueue } from './PatientQueue';
 import PatientProfile from './PatientProfile';
-import { loadAuthSession } from '../lib/supabaseAuth';
+import { createTriageQueueEntry, deleteQueueEntry, loadAuthSession, fetchPatientActiveQueue } from '../lib/supabaseAuth';
 
 interface PatientPortalProps {
   patientData: any;
@@ -21,6 +21,10 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
   const [triageData, setTriageData] = useState<any>(null);
   const [registeredPatient, setRegisteredPatient] = useState<any>(patientData ?? null);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [queueSaveError, setQueueSaveError] = useState('');
+  const [selectedFacility, setSelectedFacility] = useState<any>(null);
+  const [queueEntry, setQueueEntry] = useState<any>(null);
+  const hasActiveQueue = Boolean(queueEntry);
 
   const menuItems = [
     { id: 'symptom' as PatientView, label: 'Symptoms', icon: Activity, shortLabel: 'Symptoms' },
@@ -31,6 +35,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
   ];
 
   const hasPatient = Boolean(registeredPatient && (registeredPatient.id || registeredPatient.patientCode || registeredPatient.name));
+  const visibleMenuItems = menuItems.filter((it) => {
+    if (isRegistered && it.id === 'preregister') return false;
+    if (hasActiveQueue && it.id === 'facilities') return false;
+    return true;
+  });
 
   const [recordPatient, setRecordPatient] = useState<any>(registeredPatient ?? null);
   const [recordLoading, setRecordLoading] = useState<boolean>(false);
@@ -45,9 +54,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
     // 5. If not found: Show Register menu (setIsRegistered = false)
     
     const session = loadAuthSession(); // Load from localStorage: filcare-auth-session
-     console.log('Session loaded from localStorage:', session);
      if (!session?.userId) {
-       console.log('No session or userID found');
        return; // No session or userID, cannot proceed
      }
 
@@ -55,7 +62,6 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
     const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || '';
 
      if (!restBase || !anonKey) {
-       console.log('Missing REST API base or anon key');
        return;
      }
 
@@ -82,8 +88,6 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
     // Query patients by user_id matching the userID from localStorage session
     const url = `${restBase}/patients?select=*&user_id=eq.${session.userId}`;
-     console.log('Fetching from URL:', url);
-     console.log('Using userID:', session.userId);
    
      fetch(url, {
       headers: {
@@ -92,20 +96,14 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       },
     })
       .then(async (res) => {
-        console.log('Patient fetch response:', res);
-         console.log('Response status:', res.status);
-         console.log('Response headers:', res.headers);
-       
         if (!res.ok) {
           const text = await res.text();
-           console.log('Error response text:', text);
           throw new Error(text || 'Failed to load patient');
         }
 
         return res.json();
       })
       .then((data) => {
-        console.log('Patient data received:', data);
         const patient = Array.isArray(data) ? data[0] : data;
 
         if (patient) {
@@ -134,6 +132,29 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         }
       });
   }, []);
+
+  useEffect(() => {
+    // Check for existing active queue when user views the queue page
+    if (activeView !== 'queue') return;
+    if (queueEntry) return; // Already have a queue entry from facility selection
+
+    const session = loadAuthSession();
+    if (!session?.userId) return;
+
+    const checkQueue = async () => {
+      try {
+        const result = await fetchPatientActiveQueue(session.userId);
+        if (result.queueEntry) {
+          setQueueEntry(result.queueEntry);
+          setSelectedFacility(result.facility);
+        }
+      } catch (error) {
+        console.error('Error checking for existing queue:', error);
+      }
+    };
+
+    checkQueue();
+  }, [activeView, queueEntry]);
 
   useEffect(() => {
     // When user opens Records view, fetch the latest patient data from REST API
@@ -197,6 +218,83 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       .finally(() => setRecordLoading(false));
   }, [activeView, registeredPatient, patientData]);
 
+  const handleFacilitySelect = async (facility: any) => {
+    setQueueSaveError('');
+    const patient = registeredPatient ?? patientData;
+
+    if (!patient?.id || !triageData) {
+      setActiveView('queue');
+      return;
+    }
+
+    try {
+      const result = await createTriageQueueEntry({
+        patientId: patient.id,
+        facility,
+        triageData,
+      });
+      setSelectedFacility(result.facility || facility);
+      setQueueEntry(result.queue);
+      setActiveView('queue');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save queue entry';
+      if (message.toLowerCase().includes('facilities') || message.toLowerCase().includes('row-level security')) {
+        const fallbackQueue = {
+          id: `local-${Date.now()}`,
+          facility_id: facility.id,
+          patient_id: patient.id,
+          queue_date: new Date().toISOString().slice(0, 10),
+          queue_number: 1,
+          priority: triageData?.priority || 'P3',
+          priority_label: triageData?.priorityLabel || 'Standard',
+          status: 'waiting',
+          check_in_at: new Date().toISOString(),
+          estimated_wait_minutes: Number.parseInt(String(facility.waitTime || triageData?.estimatedWait || '30'), 10) || 30,
+        };
+
+        setSelectedFacility(facility);
+        setQueueEntry(fallbackQueue);
+        setQueueSaveError('Facility was not saved to Supabase because of database policy, so this queue is shown locally. Ask an admin to allow facility inserts or seed real facilities.');
+        setActiveView('queue');
+        return;
+      }
+
+      setQueueSaveError(message);
+    }
+  };
+
+  const resetQueueState = () => {
+    setQueueEntry(null);
+    setSelectedFacility(null);
+    setQueueSaveError('');
+  };
+
+  const handleCancelQueue = async () => {
+    if (!queueEntry?.id) {
+      resetQueueState();
+      setActiveView('facilities');
+      return;
+    }
+
+    if (!String(queueEntry.id).startsWith('local-')) {
+      try {
+        await deleteQueueEntry(queueEntry.id);
+      } catch (error) {
+        setQueueSaveError(error instanceof Error ? error.message : 'Unable to cancel queue entry.');
+        return;
+      }
+    }
+
+    resetQueueState();
+    setActiveView('facilities');
+  };
+
+  const handleLogout = () => {
+    resetQueueState();
+    setTriageData(null);
+    onBack();
+  };
+
   return (
     <div className="size-full flex flex-col bg-gray-50">
       {/* Mobile Header */}
@@ -218,7 +316,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
               </div>
             )}
             <button
-              onClick={onBack}
+              onClick={handleLogout}
               className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-xl transition-colors"
               title="Logout"
             >
@@ -230,6 +328,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
       {/* Main Content - with padding for bottom nav on mobile */}
       <div className="block md:hidden flex-1 overflow-auto pb-20 sm:pb-0">
+        {queueSaveError && (
+          <div className="mx-4 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {queueSaveError}
+          </div>
+        )}
         {activeView === 'symptom' && (
           <SymptomChecker
             onTriageComplete={(data) => {
@@ -255,13 +358,17 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'facilities' && (
           <FacilityFinder
             triageData={triageData}
-            onFacilitySelect={() => {
-              setActiveView('queue');
-            }}
+            onFacilitySelect={handleFacilitySelect}
           />
         )}
         {activeView === 'queue' && (
-          <PatientQueue patientData={patientData} triageData={triageData} />
+          <PatientQueue
+            patientData={registeredPatient ?? patientData}
+            triageData={triageData}
+            selectedFacility={selectedFacility}
+            queueEntry={queueEntry}
+            onCancelQueue={handleCancelQueue}
+          />
         )}
         {activeView === 'record' && (
           <PatientProfile patient={registeredPatient ?? patientData} onPatientUpdated={(data) => { setPatientData(data); setRegisteredPatient(data); }} />
@@ -270,12 +377,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
       {/* Bottom Navigation - Mobile */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">
-        <div className="grid grid-cols-5 gap-1 px-2 py-2">
-          {menuItems
-            .filter((it) => {
-              // Hide Register menu if user is registered (isRegistered = true when accounts.id matches patients.user_id)
-              return !(isRegistered && it.id === 'preregister');
-            })
+        <div
+          className="grid gap-1 px-2 py-2"
+          style={{ gridTemplateColumns: `repeat(${visibleMenuItems.length}, minmax(0, 1fr))` }}
+        >
+          {visibleMenuItems
             .map((item) => {
             const Icon = item.icon;
             const isActive = activeView === item.id;
@@ -301,11 +407,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       <div className="hidden sm:flex absolute left-0 top-[57px] bottom-0 w-64 bg-white border-r border-gray-200 z-30">
         <nav className="w-full overflow-y-auto">
           <div className="p-4 space-y-2">
-            {menuItems
-              .filter((it) => {
-                // Hide Register menu if user is registered (isRegistered = true when accounts.id matches patients.user_id)
-                return !(isRegistered && it.id === 'preregister');
-              })
+            {visibleMenuItems
               .map((item) => {
               const Icon = item.icon;
               const isActive = activeView === item.id;
@@ -330,6 +432,11 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
       {/* Desktop content wrapper */}
       <div className="hidden sm:block absolute left-64 right-0 top-[57px] bottom-0 overflow-auto">
+        {queueSaveError && (
+          <div className="mx-8 mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {queueSaveError}
+          </div>
+        )}
         {activeView === 'symptom' && (
           <SymptomChecker
             onTriageComplete={(data) => {
@@ -355,13 +462,17 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
         {activeView === 'facilities' && (
           <FacilityFinder
             triageData={triageData}
-            onFacilitySelect={() => {
-              setActiveView('queue');
-            }}
+            onFacilitySelect={handleFacilitySelect}
           />
         )}
         {activeView === 'queue' && (
-          <PatientQueue patientData={patientData} triageData={triageData} />
+          <PatientQueue
+            patientData={registeredPatient ?? patientData}
+            triageData={triageData}
+            selectedFacility={selectedFacility}
+            queueEntry={queueEntry}
+            onCancelQueue={handleCancelQueue}
+          />
         )}
         {activeView === 'record' && (
           <div className="p-4">

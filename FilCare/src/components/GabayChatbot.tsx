@@ -42,13 +42,17 @@ function looksOffTopicForGabay(text: string): boolean {
 }
 
 function getApiConfig() {
-  const apiKey = (import.meta.env.VITE_OPENAI_API_KEY as string | undefined)?.trim()
-  const base =
-    ((import.meta.env.VITE_OPENAI_API_BASE as string | undefined)?.trim() ||
-      'https://openrouter.ai/api/v1').replace(/\/$/, '')
+  const openAiKey = (import.meta.env.VITE_OPENAI_API_KEY as string | undefined)?.trim()
+  const openRouterKey = (import.meta.env.VITE_OPENROUTER_API_KEY as string | undefined)?.trim()
+  const apiKey = openAiKey || openRouterKey || ''
+  const explicitBase =
+    (import.meta.env.VITE_OPENAI_API_BASE as string | undefined)?.trim() ||
+    (import.meta.env.VITE_OPENROUTER_API_BASE as string | undefined)?.trim()
+  const base = (explicitBase || (openRouterKey ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '')
   const model =
     (import.meta.env.VITE_OPENAI_MODEL as string | undefined)?.trim() ||
-    'openai/gpt-4o-mini'
+    (import.meta.env.VITE_OPENROUTER_MODEL as string | undefined)?.trim() ||
+    (openRouterKey ? 'openai/gpt-4o-mini' : 'gpt-4o-mini')
   return { apiKey, base, model }
 }
 
@@ -75,7 +79,7 @@ export function GabayChatbot() {
             offTopic:
               'Sorry, I can only help with general health information. I cannot answer questions about the app, website, or product suggestions.',
             noKey:
-              'No API key found. Set VITE_OPENAI_API_KEY in FilCare/.env. For OpenRouter also set VITE_OPENAI_API_BASE=https://openrouter.ai/api/v1 and a valid VITE_OPENAI_MODEL.',
+              'No AI API key found. Add VITE_OPENAI_API_KEY or VITE_OPENROUTER_API_KEY in FilCare/.env, then restart the dev server.',
             unclear:
               'Sorry, I do not have a clear answer right now. Please consult a licensed doctor.',
             error:
@@ -100,7 +104,7 @@ export function GabayChatbot() {
             offTopic:
               'Pasensya, pangkalahatang impormasyon sa kalusugan lang ang masasagot ko. Hindi ako sumasagot tungkol sa app, website, o product suggestions.',
             noKey:
-              'Walang API key. Ilagay ang VITE_OPENAI_API_KEY sa FilCare/.env. Para sa OpenRouter, ilagay din ang VITE_OPENAI_API_BASE=https://openrouter.ai/api/v1 at valid na VITE_OPENAI_MODEL.',
+              'Walang AI API key. Ilagay ang VITE_OPENAI_API_KEY o VITE_OPENROUTER_API_KEY sa FilCare/.env, tapos i-restart ang dev server.',
             unclear:
               'Pasensya, wala akong malinaw na sagot ngayon. Kumonsulta sa lisensyadong doktor.',
             error:
@@ -268,7 +272,7 @@ export function GabayChatbot() {
   }, [autoSendQueued, isListening, loading, send])
 
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[9999] flex flex-col items-end gap-3">
+    <div className="pointer-events-none fixed bottom-[4.75rem] right-3 z-[9999] flex flex-col items-end gap-3 sm:bottom-5 sm:right-5">
       {open && (
         <div
           className="pointer-events-auto flex h-[min(75vh,34rem)] max-h-[calc(100vh-6.5rem)] w-[min(100vw-2rem,22rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl shadow-blue-900/10"
@@ -401,7 +405,7 @@ export function GabayChatbot() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-600/40 ring-4 ring-white transition hover:scale-105 hover:shadow-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-600/40 ring-4 ring-white transition hover:scale-105 hover:shadow-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 sm:h-14 sm:w-14"
         aria-expanded={open}
         title={open ? localized.close : localized.open}
       >

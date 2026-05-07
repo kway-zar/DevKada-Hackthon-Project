@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { MapPin, Navigation, Phone, Clock, Star, Building2 } from 'lucide-react';
 
-const OVERPASS_PROXY_URL = '/api/overpass';
+const OVERPASS_PROXY_URL =
+  (import.meta.env.VITE_OVERPASS_PROXY_URL as string | undefined)?.trim() || '/api/overpass';
 
 interface FacilityFinderProps {
   triageData: any;
@@ -17,91 +18,91 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
   const [gpsSource, setGpsSource] = useState<'mock' | 'live'>('mock');
   const [facilities, setFacilities] = useState([
     {
-      id: 1,
-      name: 'Massachusetts General Hospital',
+      id: 'mock-pgh',
+      name: 'Philippine General Hospital',
       type: 'Hospital',
-      distance: '1.2 miles',
+      distance: '1.8 km',
       waitTime: '15 min',
       rating: 4.8,
-      address: '55 Fruit Street, Boston, MA 02114',
-      phone: '(617) 726-2000',
-      secondaryPhone: '(617) 724-9720',
-      emergencyHotline: '(617) 726-2911',
+      address: 'Taft Avenue, Ermita, Manila, 1000',
+      phone: '(02) 8554-8400',
+      secondaryPhone: '(02) 8526-0150',
+      emergencyHotline: '911',
       capabilities: ['Emergency Room', 'Trauma Center', 'ICU', 'Surgery'],
-      lat: 42.3626,
-      lon: -71.0695,
+      lat: 14.5775,
+      lon: 120.9851,
       acceptsP1: true,
       acceptsP2: true,
       acceptsP3: true,
     },
     {
-      id: 2,
-      name: 'Brigham and Women\'s Hospital',
+      id: 'mock-st-lukes-bgc',
+      name: 'St. Luke\'s Medical Center BGC',
       type: 'Hospital',
-      distance: '1.8 miles',
+      distance: '8.5 km',
       waitTime: '20 min',
       rating: 4.7,
-      address: '75 Francis Street, Boston, MA 02115',
-      phone: '(617) 732-5500',
-      secondaryPhone: '(617) 278-0000',
-      emergencyHotline: '(617) 732-5636',
+      address: 'Rizal Drive, Bonifacio Global City, Taguig, 1634',
+      phone: '(02) 8789-7700',
+      secondaryPhone: '(02) 8789-7700',
+      emergencyHotline: '911',
       capabilities: ['Emergency Room', 'Cardiology', 'Oncology', 'Surgery'],
-      lat: 42.3354,
-      lon: -71.1062,
+      lat: 14.5547,
+      lon: 121.0473,
       acceptsP1: true,
       acceptsP2: true,
       acceptsP3: true,
     },
     {
-      id: 3,
-      name: 'Boston Medical Center',
+      id: 'mock-makati-med',
+      name: 'Makati Medical Center',
       type: 'Hospital',
-      distance: '2.3 miles',
+      distance: '6.1 km',
       waitTime: '25 min',
       rating: 4.5,
-      address: '1 Boston Medical Center Pl, Boston, MA 02118',
-      phone: '(617) 638-8000',
-      secondaryPhone: '(617) 414-4075',
-      emergencyHotline: '(617) 638-7575',
+      address: '2 Amorsolo Street, Legazpi Village, Makati, 1229',
+      phone: '(02) 8888-8999',
+      secondaryPhone: '(02) 8888-8999',
+      emergencyHotline: '911',
       capabilities: ['Emergency Room', 'Trauma Center', 'Pediatrics'],
-      lat: 42.3357,
-      lon: -71.0747,
+      lat: 14.5599,
+      lon: 121.0144,
       acceptsP1: true,
       acceptsP2: true,
       acceptsP3: true,
     },
     {
-      id: 4,
-      name: 'Boston Community Clinic',
+      id: 'mock-manila-clinic',
+      name: 'Manila Community Clinic',
       type: 'Clinic',
-      distance: '0.8 miles',
+      distance: '1.2 km',
       waitTime: '30 min',
       rating: 4.6,
-      address: '123 Main Street, Boston, MA 02116',
-      phone: '(617) 555-0100',
-      secondaryPhone: '(617) 555-0199',
+      address: 'Padre Faura Street, Ermita, Manila, 1000',
+      phone: '(02) 8521-0020',
+      secondaryPhone: '(02) 8521-0021',
       emergencyHotline: '911',
       capabilities: ['Primary Care', 'Urgent Care', 'Lab Services'],
-      lat: 42.3491,
-      lon: -71.0812,
+      lat: 14.5806,
+      lon: 120.9847,
       acceptsP1: false,
       acceptsP2: true,
       acceptsP3: true,
     },
     {
-      id: 5,
-      name: 'Cambridge Urgent Care',
+      id: 'mock-quezon-urgent-care',
+      name: 'Quezon City Urgent Care',
       type: 'Clinic',
-      distance: '3.1 miles',
+      distance: '9.4 km',
       waitTime: '45 min',
       rating: 4.4,
-      address: '789 Cambridge St, Cambridge, MA 02141',
-      phone: '(617) 555-0200',
-      secondaryPhone: '(617) 555-0299',
+      address: 'East Avenue, Diliman, Quezon City, 1100',
+      phone: '(02) 8928-0611',
+      secondaryPhone: '(02) 8928-0612',
       emergencyHotline: '911',
       capabilities: ['Urgent Care', 'X-Ray', 'Minor Procedures'],
-      lat: 42.3724,
-      lon: -71.0886,
+      lat: 14.6426,
+      lon: 121.0482,
       acceptsP1: false,
       acceptsP2: true,
       acceptsP3: true,
@@ -183,18 +184,15 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       out center 25;
     `;
     
-    console.log('Sending Overpass query to:', OVERPASS_PROXY_URL);
-    console.log('Query body length:', query.length);
-    
     const response = await fetch(OVERPASS_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       body: query,
     });
-    console.log('Response status:', response.status);
     if (!response.ok) {
       throw new Error('Failed to fetch nearby facilities');
     }
+
     const data = await response.json();
     const elements = Array.isArray(data?.elements) ? data.elements : [];
     if (elements.length === 0) return null;
@@ -207,7 +205,7 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
         const distanceKm = distanceInKm(lat, lon, latValue, lonValue);
         const amenityType = element.tags?.amenity === 'hospital' ? 'Hospital' : 'Clinic';
         return {
-          id: Number(`9${index + 1}`),
+          id: `osm-${element.type || 'node'}-${element.id || index + 1}`,
           name: element.tags?.name || `${amenityType} (Nearby)`,
           type: amenityType,
           distance: `${distanceKm.toFixed(1)} km`,
@@ -237,9 +235,30 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
     return mapped.length > 0 ? mapped : null;
   };
 
+  const useFallbackLocation = async (message: string) => {
+    const lat = 14.5995;
+    const lon = 120.9842;
+    setUserCoords({ lat, lon });
+    setUserLocation('Manila, Philippines');
+    setGpsError(message);
+    try {
+      const liveFacilities = await fetchNearbyHospitals(lat, lon);
+      if (liveFacilities && liveFacilities.length > 0) {
+        setFacilities(liveFacilities);
+        setGpsSource('live');
+        return;
+      }
+    } catch {
+      // Keep recommended facilities sorted against the fallback coordinates.
+    }
+    setGpsSource('mock');
+  };
+
   const handleUseGps = () => {
     if (!navigator.geolocation) {
-      setGpsError('Geolocation is not supported in this browser.');
+      setGpsLoading(true);
+      void useFallbackLocation('Geolocation is not supported in this browser. Showing facilities near Manila instead.')
+        .finally(() => setGpsLoading(false));
       return;
     }
     setGpsLoading(true);
@@ -257,9 +276,11 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
             setGpsSource('live');
           } else {
             setGpsSource('mock');
+            setGpsError('No nearby facilities found from GPS. Showing recommended facilities sorted by distance.');
           }
         } catch (_error) {
           setGpsSource('mock');
+          setGpsError('Live nearby facility search is unavailable. Showing recommended facilities sorted by distance.');
         } finally {
           setGpsLoading(false);
         }
@@ -267,9 +288,9 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
       (error) => {
         setGpsLoading(false);
         if (error.code === error.PERMISSION_DENIED) {
-          setGpsError('Location permission denied. Allow GPS to see nearest hospitals.');
+          void useFallbackLocation('Location permission denied. Showing facilities near Manila instead.');
         } else {
-          setGpsError('Unable to get your current location.');
+          void useFallbackLocation('Unable to get your current location. Showing facilities near Manila instead.');
         }
       },
       { enableHighAccuracy: true, timeout: 10000 }

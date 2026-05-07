@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Activity,
   Users,
@@ -409,8 +410,17 @@ function MarkCompleteModal({
           <p className="text-sm text-foreground">
             Confirm that <span className="font-semibold">{patient.name}</span>&apos;s visit has been completed and their case can be closed.
           </p>
-          <p className="text-xs text-muted-foreground">
-            This will update their status in the queue and remove them from the active patient list.
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
+            <p className="text-xs font-medium text-blue-800 mb-1">What happens next:</p>
+            <ul className="text-xs text-blue-700 space-y-0.5">
+              <li>• Patient status updated to "Completed"</li>
+              <li>• Removed from active queue</li>
+              <li>• Records remain accessible for review</li>
+              <li>• Ready for discharge/follow-up</li>
+            </ul>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            This action cannot be undone. Make sure all necessary documentation is complete.
           </p>
         </div>
 
@@ -537,9 +547,38 @@ function PatientCard({
         )}
 
         {isCompleted && (
-          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100 text-xs text-emerald-600 font-medium">
-            <CheckCircle2 className="w-4 h-4" />
-            Visit completed
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-emerald-700 font-medium text-sm mb-2">
+                <CheckCircle2 className="w-4 h-4" />
+                Visit Completed
+              </div>
+              <div className="text-xs text-emerald-600 space-y-1">
+                <p>• Patient consultation finished</p>
+                <p>• Records updated successfully</p>
+                <p>• Ready for next patient</p>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 text-xs h-7 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                  onClick={() => onAction("view-records", patient)}
+                >
+                  <FileText className="w-3 h-3 mr-1" />
+                  View Records
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 text-xs h-7 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                  onClick={() => onAction("see-patient", patient)}
+                >
+                  <Eye className="w-3 h-3 mr-1" />
+                  Patient Summary
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -552,6 +591,7 @@ interface ProviderDashboardProps {
 }
 
 export function ProviderDashboard({ onBack }: ProviderDashboardProps) {
+  const navigate = useNavigate();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -631,6 +671,39 @@ export function ProviderDashboard({ onBack }: ProviderDashboardProps) {
   }, []);
 
   const handleAction = (type: ModalType, patient: Patient) => {
+    if (type === "view-records") {
+      navigate(`/provider/patient/${patient.id}`, {
+        state: {
+          entry: {
+            patientName: patient.name,
+            patientId: patient.id,
+            priority: patient.priority,
+            queueNumber: patient.queueNumber,
+            status:
+              patient.status === "completed"
+                ? "Completed"
+                : patient.status === "in-progress"
+                ? "In Progress"
+                : "Waiting",
+            checkedInAt: patient.arrivalTime,
+            symptoms: patient.symptoms.join(", "),
+            estimatedWait: patient.waitTime,
+            age: patient.age,
+            gender: patient.gender,
+            bloodType: patient.bloodType,
+            allergies: patient.allergies,
+            medication: [],
+            medicalHistory: patient.medicalHistory.map(
+              (record) => `${record.date} — ${record.diagnosis} (${record.doctor})`
+            ),
+            qrCode: `https://filcare.com/patient/${patient.id}`,
+            contactNumber: patient.phone,
+          },
+        },
+      });
+      return;
+    }
+
     setSelectedPatient(patient);
     setActiveModal(type);
   };
@@ -639,6 +712,9 @@ export function ProviderDashboard({ onBack }: ProviderDashboardProps) {
     setPatients((prev) =>
       prev.map((p) => (p.id === id ? { ...p, status: "completed" } : p))
     );
+    // Close the modal after marking complete so UI updates immediately.
+    setActiveModal(null);
+    setSelectedPatient(null);
   };
 
   const closeModal = () => {
