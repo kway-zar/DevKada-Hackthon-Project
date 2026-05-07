@@ -715,7 +715,6 @@ export function ProviderDashboard({ onBack }: ProviderDashboardProps) {
     // Close the modal after marking complete so UI updates immediately.
     setActiveModal(null);
     setSelectedPatient(null);
-    console.log(`Patient ${id} marked as completed`);
   };
 
   const closeModal = () => {

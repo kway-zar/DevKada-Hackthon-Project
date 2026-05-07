@@ -272,7 +272,7 @@ export function GabayChatbot() {
   }, [autoSendQueued, isListening, loading, send])
 
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[9999] flex flex-col items-end gap-3">
+    <div className="pointer-events-none fixed bottom-[4.75rem] right-3 z-[9999] flex flex-col items-end gap-3 sm:bottom-5 sm:right-5">
       {open && (
         <div
           className="pointer-events-auto flex h-[min(75vh,34rem)] max-h-[calc(100vh-6.5rem)] w-[min(100vw-2rem,22rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl shadow-blue-900/10"
@@ -405,7 +405,7 @@ export function GabayChatbot() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-600/40 ring-4 ring-white transition hover:scale-105 hover:shadow-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-600/40 ring-4 ring-white transition hover:scale-105 hover:shadow-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 sm:h-14 sm:w-14"
         aria-expanded={open}
         title={open ? localized.close : localized.open}
       >

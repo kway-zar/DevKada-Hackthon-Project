@@ -54,9 +54,7 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
     // 5. If not found: Show Register menu (setIsRegistered = false)
     
     const session = loadAuthSession(); // Load from localStorage: filcare-auth-session
-     console.log('Session loaded from localStorage:', session);
      if (!session?.userId) {
-       console.log('No session or userID found');
        return; // No session or userID, cannot proceed
      }
 
@@ -64,7 +62,6 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
     const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || '';
 
      if (!restBase || !anonKey) {
-       console.log('Missing REST API base or anon key');
        return;
      }
 
@@ -91,8 +88,6 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
 
     // Query patients by user_id matching the userID from localStorage session
     const url = `${restBase}/patients?select=*&user_id=eq.${session.userId}`;
-     console.log('Fetching from URL:', url);
-     console.log('Using userID:', session.userId);
    
      fetch(url, {
       headers: {
@@ -101,20 +96,14 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       },
     })
       .then(async (res) => {
-        console.log('Patient fetch response:', res);
-         console.log('Response status:', res.status);
-         console.log('Response headers:', res.headers);
-       
         if (!res.ok) {
           const text = await res.text();
-           console.log('Error response text:', text);
           throw new Error(text || 'Failed to load patient');
         }
 
         return res.json();
       })
       .then((data) => {
-        console.log('Patient data received:', data);
         const patient = Array.isArray(data) ? data[0] : data;
 
         if (patient) {

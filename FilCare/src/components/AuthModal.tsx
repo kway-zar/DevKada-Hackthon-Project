@@ -55,7 +55,7 @@ export function AuthModal({ open, onOpenChange, defaultUserType, onAuthSuccess }
     const formData = new FormData(e.currentTarget);
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
-    const fullName = formData.get('fullName') as string;
+    const fullName = (email.split('@')[0] || 'Patient').trim();
     const confirmPassword = formData.get('confirmPassword') as string;
 
     if (password !== confirmPassword) {
@@ -169,18 +169,6 @@ export function AuthModal({ open, onOpenChange, defaultUserType, onAuthSuccess }
             {!isProviderOnly && (
               <TabsContent value="signup">
                 <form onSubmit={handleSignup} className="space-y-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-name">Full Name</Label>
-                    <Input
-                      id="signup-name"
-                      name="fullName"
-                      type="text"
-                      placeholder="Juan Dela Cruz"
-                      required
-                      className="bg-input-background"
-                    />
-                  </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="signup-email">Email</Label>
                     <Input

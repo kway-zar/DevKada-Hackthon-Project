@@ -808,7 +808,6 @@ export async function fetchPatientActiveQueue(userId: string): Promise<{
       facility: (queueEntry.facilities || null) as QueueFacility | null,
     }
   } catch (error) {
-    console.error('Error fetching patient active queue:', error)
     return { queueEntry: null, facility: null }
   }
 }
