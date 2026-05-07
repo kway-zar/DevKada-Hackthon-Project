@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { MapPin, Navigation, Phone, Clock, Star, Building2 } from 'lucide-react';
 
-const OVERPASS_PROXY_URL = '/api/overpass';
+const OVERPASS_PROXY_URL =
+  (import.meta.env.VITE_OVERPASS_PROXY_URL as string | undefined)?.trim() || '/api/overpass';
+const OVERPASS_DIRECT_URL =
+  (import.meta.env.VITE_OVERPASS_DIRECT_URL as string | undefined)?.trim() || 'https://overpass-api.de/api/interpreter';
 
 interface FacilityFinderProps {
   triageData: any;
@@ -185,16 +188,28 @@ export function FacilityFinder({ triageData, onFacilitySelect }: FacilityFinderP
     
     console.log('Sending Overpass query to:', OVERPASS_PROXY_URL);
     console.log('Query body length:', query.length);
-    
-    const response = await fetch(OVERPASS_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      body: query,
-    });
-    console.log('Response status:', response.status);
+
+    const tryFetch = async (url: string) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: query,
+      });
+      console.log('Response status from', url, ':', response.status);
+      return response;
+    };
+
+    let response = await tryFetch(OVERPASS_PROXY_URL);
+
+    if (response.status === 404 && OVERPASS_PROXY_URL.startsWith('/')) {
+      console.warn('Local Overpass proxy not found, retrying direct Overpass endpoint');
+      response = await tryFetch(OVERPASS_DIRECT_URL);
+    }
+
     if (!response.ok) {
       throw new Error('Failed to fetch nearby facilities');
     }
+
     const data = await response.json();
     const elements = Array.isArray(data?.elements) ? data.elements : [];
     if (elements.length === 0) return null;
