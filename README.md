@@ -147,9 +147,10 @@ npm run preview
 ## Provider Dashboard Test Credentials
 
 To try out Provider's Dashboard use the following credentials:
-E: doc.oc@filcare.ph
-P: octavius123
-
+```bash
+email: doc.oc@filcare.ph
+password: octavius123
+```
 ## Notes
 
 - This is a hackathon project and some backend/auth flows are simplified for demo purposes.
