@@ -1,7 +1,7 @@
 
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { CheckCircle, Download, Edit3, Loader2, Shield, UserCircle, Upload } from 'lucide-react';
+import { CalendarDays, CheckCircle, Download, Edit3, FileText, Loader2, Shield, UserCircle, Upload } from 'lucide-react';
 
 type PatientData = {
   id?: string;
@@ -29,6 +29,17 @@ type PatientData = {
   religion?: string;
   hasInsurance?: string;
   insuranceProvider?: string;
+};
+
+type MedicalHistoryRecord = {
+  id: string;
+  category?: string | null;
+  record_type?: string | null;
+  title?: string | null;
+  description?: string | null;
+  status?: string | null;
+  record_date?: string | null;
+  created_at?: string | null;
 };
 
 interface PatientProfileProps {
@@ -78,10 +89,75 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
+  const [medicalHistory, setMedicalHistory] = useState<MedicalHistoryRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   useEffect(() => {
     setFormData(toFormData(patient));
   }, [patient]);
+
+  useEffect(() => {
+    if (!patient?.id) {
+      setMedicalHistory([]);
+      setHistoryError('');
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadMedicalHistory = async () => {
+      setHistoryLoading(true);
+      setHistoryError('');
+
+      try {
+        const params = new URLSearchParams({
+          select: 'id,category,record_type,title,description,status,record_date,created_at',
+          patient_id: `eq.${patient.id}`,
+          order: 'record_date.desc,created_at.desc',
+        });
+
+        const response = await fetch(`${getRestBase()}/medical_records?${params.toString()}`, {
+          headers: {
+            apikey: getAnonKey(),
+            Authorization: `Bearer ${getAnonKey()}`,
+          },
+        });
+
+        const text = await response.text();
+        let payload: any = text;
+
+        try {
+          payload = text ? JSON.parse(text) : [];
+        } catch {
+          // Keep the raw response text for the error message below.
+        }
+
+        if (!response.ok) {
+          throw new Error(payload?.message || payload?.hint || text || 'Unable to load medical history');
+        }
+
+        if (!isCancelled) {
+          setMedicalHistory(Array.isArray(payload) ? payload : []);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setMedicalHistory([]);
+          setHistoryError(error instanceof Error ? error.message : 'Unable to load medical history');
+        }
+      } finally {
+        if (!isCancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    };
+
+    void loadMedicalHistory();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [patient?.id]);
 
   const age = useMemo(() => {
     if (!formData.dateOfBirth) return null;
@@ -421,6 +497,56 @@ const PatientProfile = ({ patient, onPatientUpdated }: PatientProfileProps) => {
                   <label className="block text-sm font-semibold text-gray-600 mb-1">Current Medications</label>
                   <textarea name="medications" value={formData.medications} onChange={handleChange} className="w-full rounded-lg border border-gray-300 px-3 py-2 min-h-24" />
                 </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Medical History</h2>
+                {historyLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                {historyError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {historyError}
+                  </div>
+                )}
+
+                {!historyError && historyLoading && (
+                  <div className="text-sm text-gray-500">Loading medical history...</div>
+                )}
+
+                {!historyError && !historyLoading && medicalHistory.length === 0 && (
+                  <div className="text-sm text-gray-500">No medical history records found for this patient.</div>
+                )}
+
+                {!historyError && !historyLoading && medicalHistory.length > 0 && (
+                  <div className="space-y-3">
+                    {medicalHistory.map((record) => (
+                      <div key={record.id} className="rounded-lg border border-gray-200 bg-white p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 shrink-0 text-blue-600" />
+                              <p className="font-semibold text-gray-900">{record.title || 'Untitled record'}</p>
+                            </div>
+                            <p className="mt-1 text-xs font-medium text-gray-500">
+                              {[record.category, record.record_type, record.status].filter(Boolean).join(' / ') || 'Medical record'}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1 text-xs text-gray-500">
+                            <CalendarDays className="h-3.5 w-3.5" />
+                            {record.record_date ? new Date(record.record_date).toLocaleDateString() : 'No date'}
+                          </div>
+                        </div>
+                        {record.description && (
+                          <p className="mt-3 text-sm leading-relaxed text-gray-700">{record.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
