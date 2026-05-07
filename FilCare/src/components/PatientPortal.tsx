@@ -37,14 +37,27 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
   const [recordError, setRecordError] = useState<string>('');
 
   useEffect(() => {
-    // Check registration status: Load accounts.id from session and find matching patient with user_id
-    const session = loadAuthSession();
-    if (!session?.userId) return; // session.userId = accounts.id
+    // REGISTRATION VERIFICATION FLOW:
+    // 1. Load session from localStorage (filcare-auth-session)
+    // 2. Extract userID (which is accounts.id)
+    // 3. Query patients table for matching user_id
+    // 4. If found: Display patient data and hide Register menu (setIsRegistered = true)
+    // 5. If not found: Show Register menu (setIsRegistered = false)
+    
+    const session = loadAuthSession(); // Load from localStorage: filcare-auth-session
+     console.log('Session loaded from localStorage:', session);
+     if (!session?.userId) {
+       console.log('No session or userID found');
+       return; // No session or userID, cannot proceed
+     }
 
     const restBase = ((import.meta.env.VITE_SUPABASE_REST_API as string | undefined) || '').replace(/\/$/, '');
     const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || '';
 
-    if (!restBase || !anonKey) return;
+     if (!restBase || !anonKey) {
+       console.log('Missing REST API base or anon key');
+       return;
+     }
 
     const mappedFromRow = (patient: any) => ({
       id: patient.id,
@@ -67,37 +80,45 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       qrToken: patient.qr_token,
     });
 
-    fetch(`${restBase}/patients?user_id=eq.${encodeURIComponent(session.userId)}&select=*`, {
-      // Query: Find patient record where patients.user_id = accounts.id (session.userId)
-      // If found: User is registered, show all menus except Register
-      // If not found: User is not registered, show Register menu
+    // Query patients by user_id matching the userID from localStorage session
+    const url = `${restBase}/patients?select=*&user_id=eq.${session.userId}`;
+     console.log('Fetching from URL:', url);
+     console.log('Using userID:', session.userId);
+   
+     fetch(url, {
       headers: {
         apikey: anonKey,
         Authorization: `Bearer ${anonKey}`,
       },
     })
       .then(async (res) => {
+        console.log('Patient fetch response:', res);
+         console.log('Response status:', res.status);
+         console.log('Response headers:', res.headers);
+       
         if (!res.ok) {
           const text = await res.text();
+           console.log('Error response text:', text);
           throw new Error(text || 'Failed to load patient');
         }
 
         return res.json();
       })
       .then((data) => {
+        console.log('Patient data received:', data);
         const patient = Array.isArray(data) ? data[0] : data;
 
         if (patient) {
-          // Registration confirmed: Patient record found with matching user_id
+          // FOUND: Patient record matched with localStorage userID → User is registered
           const mappedPatient = mappedFromRow(patient);
-          setRegisteredPatient(mappedPatient);
+          setRegisteredPatient(mappedPatient); // Display patient data
           setPatientData(mappedPatient);
           setRecordPatient(mappedPatient);
-          setIsRegistered(true); // Hide Register from menu
+          setIsRegistered(true); // Hide Register from menu, show other menus
           return;
         }
 
-        // No patient record found for this user
+        // NOT FOUND: No patient record for this userID → User is not registered
         setIsRegistered(false); // Show Register in menu
         if (patientData) {
           setRegisteredPatient(patientData);
