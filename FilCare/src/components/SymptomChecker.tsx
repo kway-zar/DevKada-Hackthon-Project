@@ -14,13 +14,17 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
   const [triageResult, setTriageResult] = useState<any>(null);
 
   const getGabayApiConfig = () => {
-    const apiKey = (import.meta.env.VITE_OPENAI_API_KEY as string | undefined)?.trim();
-    const base =
-      ((import.meta.env.VITE_OPENAI_API_BASE as string | undefined)?.trim() ||
-        'https://openrouter.ai/api/v1').replace(/\/$/, '');
+    const openAiKey = (import.meta.env.VITE_OPENAI_API_KEY as string | undefined)?.trim();
+    const openRouterKey = (import.meta.env.VITE_OPENROUTER_API_KEY as string | undefined)?.trim();
+    const apiKey = openAiKey || openRouterKey || '';
+    const explicitBase =
+      (import.meta.env.VITE_OPENAI_API_BASE as string | undefined)?.trim() ||
+      (import.meta.env.VITE_OPENROUTER_API_BASE as string | undefined)?.trim();
+    const base = (explicitBase || (openRouterKey ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '');
     const model =
       (import.meta.env.VITE_OPENAI_MODEL as string | undefined)?.trim() ||
-      'openai/gpt-4o-mini';
+      (import.meta.env.VITE_OPENROUTER_MODEL as string | undefined)?.trim() ||
+      (openRouterKey ? 'openai/gpt-4o-mini' : 'gpt-4o-mini');
     return { apiKey, base, model };
   };
 
@@ -37,11 +41,117 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
   };
 
   const normalizeStringField = (value: unknown, fallback: string) => {
+    if (Array.isArray(value)) {
+      const joined = value.map((item) => String(item).trim()).filter(Boolean).join(', ');
+      return joined.length > 0 ? joined : fallback;
+    }
+
     if (typeof value === 'string') {
       const trimmed = value.trim();
       return trimmed.length > 0 ? trimmed : fallback;
     }
     return fallback;
+  };
+
+  const normalizePriority = (value: unknown): 'P1' | 'P2' | 'P3' | null => {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'p1' || normalized.includes('immediate') || normalized.includes('critical') || normalized.includes('emergency')) return 'P1';
+    if (normalized === 'p2' || normalized.includes('urgent')) return 'P2';
+    if (normalized === 'p3' || normalized.includes('routine') || normalized.includes('non-urgent') || normalized.includes('non urgent')) return 'P3';
+    return null;
+  };
+
+  const priorityRank = (priority: string) => {
+    if (priority === 'P1') return 1;
+    if (priority === 'P2') return 2;
+    return 3;
+  };
+
+  const buildRuleBasedTriage = (allSymptoms: string) => {
+    let priority: 'P1' | 'P2' | 'P3' = 'P3';
+    let priorityLabel = 'Non-Urgent';
+    let priorityColor = 'green';
+    let recommendation = 'Telemedicine consultation or next-day clinic appointment';
+    let estimatedWait = '24-48 hours';
+    let riskScore = 0;
+    const matchedSignals: string[] = [];
+
+    const p1Keywords = [
+      'chest pain',
+      'chest pressure',
+      'severe bleeding',
+      'shortness of breath',
+      'difficulty breathing',
+      'cannot breathe',
+      'unconscious',
+      'stroke',
+      'heart attack',
+      'severe burn',
+      'fainting',
+      'seizure',
+      'one-sided weakness',
+      'slurred speech',
+      'blue lips',
+    ];
+    const p2Keywords = [
+      'high fever',
+      'deep laceration',
+      'persistent vomiting',
+      'severe pain',
+      'deep cut',
+      'broken bone',
+      'severe headache',
+      'dizziness',
+      'abdominal pain',
+      'dehydration',
+    ];
+    const p3Keywords = ['cough', 'sore throat', 'rash', 'fatigue', 'joint pain', 'back pain', 'mild fever'];
+
+    const foundP1 = p1Keywords.filter((keyword) => allSymptoms.includes(keyword));
+    const foundP2 = p2Keywords.filter((keyword) => allSymptoms.includes(keyword));
+    const foundP3 = p3Keywords.filter((keyword) => allSymptoms.includes(keyword));
+
+    riskScore += foundP1.length * 6;
+    riskScore += foundP2.length * 3;
+    riskScore += foundP3.length * 1;
+    matchedSignals.push(...foundP1, ...foundP2, ...foundP3);
+
+    if (severity === 'severe') riskScore += 4;
+    if (severity === 'moderate') riskScore += 2;
+
+    if (duration === 'less-than-1-hour' && (severity === 'severe' || foundP1.length > 0)) riskScore += 3;
+    if (duration === '1-6-hours') riskScore += 1;
+    if (duration === 'more-than-week' && foundP1.length === 0) riskScore -= 1;
+
+    if (foundP1.length > 0 || riskScore >= 8) {
+      priority = 'P1';
+      priorityLabel = 'Immediate';
+      priorityColor = 'red';
+      recommendation = 'IMMEDIATE EMERGENCY CARE REQUIRED - Proceed to nearest ER';
+      estimatedWait = '0-15 minutes';
+    } else if (foundP2.length > 0 || riskScore >= 4) {
+      priority = 'P2';
+      priorityLabel = 'Urgent';
+      priorityColor = 'yellow';
+      recommendation = 'Hospital or clinic visit within 1-2 hours recommended';
+      estimatedWait = '1-2 hours';
+    }
+
+    return {
+      priority,
+      priorityLabel,
+      priorityColor,
+      recommendation,
+      estimatedWait,
+      symptoms: allSymptoms,
+      selectedSymptoms,
+      duration,
+      severity,
+      riskScore,
+      matchedSignals,
+      analysis: generateAIAnalysis(priority, matchedSignals),
+    };
   };
 
   const fetchGabayTriage = async (symptomsText: string) => {
@@ -103,30 +213,49 @@ export function SymptomChecker({ onTriageComplete }: SymptomCheckerProps) {
 Duration: ${duration || 'unknown'}
 Severity: ${severity || 'unknown'}`;
 
+    const ruleBasedResult = buildRuleBasedTriage(allSymptoms);
     const apiResult = await fetchGabayTriage(symptomDetails);
 
     if (apiResult && typeof apiResult.priority === 'string') {
+      const apiPriority = normalizePriority(apiResult.priority) || 'P3';
+      const finalPriority =
+        priorityRank(ruleBasedResult.priority) <= priorityRank(apiPriority)
+          ? ruleBasedResult.priority
+          : apiPriority;
+      const useRuleBasedPriority = finalPriority === ruleBasedResult.priority;
       const normalized = {
-        priority: normalizeStringField(apiResult.priority, 'P3'),
-        priorityLabel: normalizeStringField(apiResult.priorityLabel, 'Non-Urgent'),
-        priorityColor: normalizeStringField(apiResult.priorityColor, 'green'),
-        recommendation: normalizeStringField(
-          apiResult.recommendation,
-          'Telemedicine consultation or next-day clinic appointment'
-        ),
-        estimatedWait: normalizeStringField(apiResult.estimatedWait, '24-48 hours'),
+        priority: finalPriority,
+        priorityLabel: useRuleBasedPriority
+          ? ruleBasedResult.priorityLabel
+          : normalizeStringField(apiResult.priorityLabel, 'Non-Urgent'),
+        priorityColor: useRuleBasedPriority
+          ? ruleBasedResult.priorityColor
+          : normalizeStringField(apiResult.priorityColor, 'green'),
+        recommendation: useRuleBasedPriority
+          ? ruleBasedResult.recommendation
+          : normalizeStringField(
+              apiResult.recommendation,
+              'Telemedicine consultation or next-day clinic appointment'
+            ),
+        estimatedWait: useRuleBasedPriority
+          ? ruleBasedResult.estimatedWait
+          : normalizeStringField(apiResult.estimatedWait, '24-48 hours'),
         symptoms: normalizeStringField(apiResult.symptoms, allSymptoms),
+        selectedSymptoms,
         duration,
         severity,
-        riskScore: typeof apiResult.riskScore === 'number' ? apiResult.riskScore : 0,
+        riskScore: Math.max(
+          typeof apiResult.riskScore === 'number' ? apiResult.riskScore : 0,
+          ruleBasedResult.riskScore
+        ),
         matchedSignals: Array.isArray(apiResult.matchedSignals)
-          ? apiResult.matchedSignals
+          ? [...new Set([...ruleBasedResult.matchedSignals, ...apiResult.matchedSignals.map((s: string) => String(s))])]
           : typeof apiResult.matchedSignals === 'string'
-          ? apiResult.matchedSignals.split(',').map((s: string) => s.trim()).filter(Boolean)
-          : [],
+          ? [...new Set([...ruleBasedResult.matchedSignals, ...apiResult.matchedSignals.split(',').map((s: string) => s.trim()).filter(Boolean)])]
+          : ruleBasedResult.matchedSignals,
         analysis: normalizeStringField(
           apiResult.analysis,
-          generateAIAnalysis(apiResult.priority, [])
+          generateAIAnalysis(finalPriority, ruleBasedResult.matchedSignals)
         ),
       };
 
@@ -135,63 +264,7 @@ Severity: ${severity || 'unknown'}`;
       return;
     }
 
-    let priority = 'P3';
-    let priorityLabel = 'Non-Urgent';
-    let priorityColor = 'green';
-    let recommendation = 'Telemedicine consultation or next-day clinic appointment';
-    let estimatedWait = '24-48 hours';
-    let riskScore = 0;
-    const matchedSignals: string[] = [];
-
-    const p1Keywords = ['chest pain', 'severe bleeding', 'shortness of breath', 'difficulty breathing', 'unconscious', 'stroke', 'heart attack', 'severe burn', 'fainting', 'seizure'];
-    const p2Keywords = ['high fever', 'deep laceration', 'persistent vomiting', 'severe pain', 'deep cut', 'broken bone', 'severe headache', 'dizziness', 'abdominal pain'];
-    const p3Keywords = ['cough', 'sore throat', 'rash', 'fatigue', 'joint pain', 'back pain', 'mild fever'];
-
-    const foundP1 = p1Keywords.filter((keyword) => allSymptoms.includes(keyword));
-    const foundP2 = p2Keywords.filter((keyword) => allSymptoms.includes(keyword));
-    const foundP3 = p3Keywords.filter((keyword) => allSymptoms.includes(keyword));
-
-    riskScore += foundP1.length * 6;
-    riskScore += foundP2.length * 3;
-    riskScore += foundP3.length * 1;
-    matchedSignals.push(...foundP1, ...foundP2, ...foundP3);
-
-    if (severity === 'severe') riskScore += 4;
-    if (severity === 'moderate') riskScore += 2;
-
-    if (duration === 'less-than-1-hour' && (severity === 'severe' || foundP1.length > 0)) riskScore += 3;
-    if (duration === '1-6-hours') riskScore += 1;
-    if (duration === 'more-than-week' && foundP1.length === 0) riskScore -= 1;
-
-    if (foundP1.length > 0 || riskScore >= 8) {
-      priority = 'P1';
-      priorityLabel = 'Immediate';
-      priorityColor = 'red';
-      recommendation = 'IMMEDIATE EMERGENCY CARE REQUIRED - Proceed to nearest ER';
-      estimatedWait = '0-15 minutes';
-    } else if (foundP2.length > 0 || riskScore >= 4) {
-      priority = 'P2';
-      priorityLabel = 'Urgent';
-      priorityColor = 'yellow';
-      recommendation = 'Hospital or clinic visit within 1-2 hours recommended';
-      estimatedWait = '1-2 hours';
-    }
-
-    const result = {
-      priority,
-      priorityLabel,
-      priorityColor,
-      recommendation,
-      estimatedWait,
-      symptoms: allSymptoms,
-      duration,
-      severity,
-      riskScore,
-      matchedSignals,
-      analysis: generateAIAnalysis(priority, matchedSignals),
-    };
-
-    setTriageResult(result);
+    setTriageResult(ruleBasedResult);
     setAnalyzing(false);
   };
 
