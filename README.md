@@ -230,4 +230,4 @@ Apache License 2.0
 FilCare is distributed under the Apache License 2.0, which provides explicit patent grants, comprehensive liability terms, and clear usage permissions. This license is well-suited for healthcare applications and open-source community projects.
 
 See [LICENSE](LICENSE) for full details.
->>>>>>> dd1d5b4b001fa038156e55f692b2861b07c3ebb4
+
