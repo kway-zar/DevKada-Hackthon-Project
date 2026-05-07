@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, FileText, MapPin, QrCode, Clock, Activity } from 'lucide-react';
+import { LogOut, FileText, MapPin, QrCode, Clock, Activity } from 'lucide-react';
 import { FilCareLogo } from './FilCareLogo';
 import { SymptomChecker } from './SymptomChecker';
 import { PreRegistration } from './PreRegistration';
@@ -33,27 +33,28 @@ export function PatientPortal({ patientData, setPatientData, onBack }: PatientPo
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <FilCareLogo size="sm" showText={false} />
+            <div>
+              <h1 className="text-base sm:text-lg font-bold text-gray-900">Patient Portal</h1>
+              {patientData && (
+                <p className="text-xs text-gray-500">ID: {patientData.id}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {patientData && (
+              <div className="hidden sm:block text-right">
+                <p className="font-medium text-gray-900 text-sm">{patientData.name}</p>
+              </div>
+            )}
             <button
               onClick={onBack}
               className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-xl transition-colors"
+              title="Logout"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-700" />
+              <LogOut className="w-5 h-5 text-gray-700" />
             </button>
-            <div className="flex items-center gap-2">
-              <FilCareLogo size="sm" showText={false} />
-              <div>
-                <h1 className="text-base sm:text-lg font-bold text-gray-900">Patient Portal</h1>
-                {patientData && (
-                  <p className="text-xs text-gray-500">ID: {patientData.id}</p>
-                )}
-              </div>
-            </div>
           </div>
-          {patientData && (
-            <div className="hidden sm:block text-right">
-              <p className="font-medium text-gray-900 text-sm">{patientData.name}</p>
-            </div>
-          )}
         </div>
       </header>
 

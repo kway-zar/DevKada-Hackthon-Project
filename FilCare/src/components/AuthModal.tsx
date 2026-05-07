@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
@@ -14,9 +14,18 @@ interface AuthModalProps {
   onAuthSuccess?: (session: AuthSession) => void;
 }
 
-export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps) {
+export function AuthModal({ open, onOpenChange, defaultUserType, onAuthSuccess }: AuthModalProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setActiveTab('login');
+  }, [open]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -68,6 +77,8 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
     }
   };
 
+  const isProviderOnly = defaultUserType === 'provider';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px] p-0 gap-0 overflow-hidden bg-white z-1020 text-black/80">
@@ -98,10 +109,10 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
 
         {/* Auth Tabs */}
         <div className="p-6">
-          <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'login' | 'signup')} className="w-full">
+            <TabsList className={`grid w-full mb-6 ${isProviderOnly ? 'grid-cols-1' : 'grid-cols-2'}`}>
               <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              {!isProviderOnly && <TabsTrigger value="signup">Sign Up</TabsTrigger>}
             </TabsList>
 
             {/* Error Display */}
@@ -155,84 +166,86 @@ export function AuthModal({ open, onOpenChange, onAuthSuccess }: AuthModalProps)
             </TabsContent>
 
             {/* Sign Up Tab */}
-            <TabsContent value="signup">
-              <form onSubmit={handleSignup} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="signup-name">Full Name</Label>
-                  <Input
-                    id="signup-name"
-                    name="fullName"
-                    type="text"
-                    placeholder="Juan Dela Cruz"
-                    required
-                    className="bg-input-background"
-                  />
-                </div>
+            {!isProviderOnly && (
+              <TabsContent value="signup">
+                <form onSubmit={handleSignup} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-name">Full Name</Label>
+                    <Input
+                      id="signup-name"
+                      name="fullName"
+                      type="text"
+                      placeholder="Juan Dela Cruz"
+                      required
+                      className="bg-input-background"
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <Input
-                    id="signup-email"
-                    name="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    required
-                    className="bg-input-background"
-                  />
-                </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-email">Email</Label>
+                    <Input
+                      id="signup-email"
+                      name="email"
+                      type="email"
+                      placeholder="you@example.com"
+                      required
+                      className="bg-input-background"
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <Input
-                    id="signup-password"
-                    name="password"
-                    type="password"
-                    placeholder="••••••••"
-                    required
-                    className="bg-input-background"
-                  />
-                </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-password">Password</Label>
+                    <Input
+                      id="signup-password"
+                      name="password"
+                      type="password"
+                      placeholder="••••••••"
+                      required
+                      className="bg-input-background"
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="signup-confirm">Confirm Password</Label>
-                  <Input
-                    id="signup-confirm"
-                    name="confirmPassword"
-                    type="password"
-                    placeholder="••••••••"
-                    required
-                    className="bg-input-background"
-                  />
-                </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-confirm">Confirm Password</Label>
+                    <Input
+                      id="signup-confirm"
+                      name="confirmPassword"
+                      type="password"
+                      placeholder="••••••••"
+                      required
+                      className="bg-input-background"
+                    />
+                  </div>
 
-                <div className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    id="terms"
-                    required
-                    className="mt-1"
-                  />
-                  <Label htmlFor="terms" className="text-sm text-muted-foreground cursor-pointer">
-                    I agree to the{" "}
-                    <button type="button" className="text-blue-600 hover:underline">
-                      Terms & Conditions
-                    </button>
-                    {" "}and{" "}
-                    <button type="button" className="text-blue-600 hover:underline">
-                      Privacy Policy
-                    </button>
-                  </Label>
-                </div>
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id="terms"
+                      required
+                      className="mt-1"
+                    />
+                    <Label htmlFor="terms" className="text-sm text-muted-foreground cursor-pointer">
+                      I agree to the{" "}
+                      <button type="button" className="text-blue-600 hover:underline">
+                        Terms & Conditions
+                      </button>
+                      {" "}and{" "}
+                      <button type="button" className="text-blue-600 hover:underline">
+                        Privacy Policy
+                      </button>
+                    </Label>
+                  </div>
 
-                <Button
-                  type="submit"
-                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                  disabled={isLoading}
-                >
-                  {isLoading ? "Creating account..." : "Create Account"}
-                </Button>
-              </form>
-            </TabsContent>
+                  <Button
+                    type="submit"
+                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "Creating account..." : "Create Account"}
+                  </Button>
+                </form>
+              </TabsContent>
+            )}
           </Tabs>
         </div>
 
