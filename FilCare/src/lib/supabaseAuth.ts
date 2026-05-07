@@ -688,6 +688,7 @@ export async function fetchPatientByQrValue(value: string): Promise<RegisteredPa
   if (!trimmed) return null
 
   const restBase = getRestApiBase()
+  // Prefer patient_code for queue/portal lookups; only touch qr_token when the input is a real UUID.
   const filters = [`patient_code.eq.${trimmed}`]
   if (isUuid(trimmed)) {
     filters.unshift(`qr_token.eq.${trimmed}`)

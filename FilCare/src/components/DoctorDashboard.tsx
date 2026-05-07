@@ -1062,6 +1062,7 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
         const lookupKey = patient.patientCode || patient.id;
 
         try {
+          // Queue rows are light; hydrate them from the patient row so age, DOB, and allergies stay in sync.
           const record = lookupId ? await fetchPatientById(lookupId) : await fetchPatientByQrValue(lookupKey);
           if (!record) return patient;
 
