@@ -931,6 +931,118 @@ export async function createTriageQueueEntry(input: {
   }
 }
 
+export async function createMedicalRecord(input: {
+  patientId: string
+  facilityId?: string | null
+  providerId?: string | null
+  title: string
+  description?: string | null
+  category?: string
+  recordType?: string
+  status?: string
+  recordDate?: string
+}) {
+  const restApiBase = ((import.meta.env.VITE_SUPABASE_REST_API as string | undefined)?.trim() || DEFAULT_REST_API).replace(/\/\/?$/, '/')
+  const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || getAnonKey()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    apikey: anonKey,
+    Authorization: `Bearer ${anonKey}`,
+    Prefer: 'return=representation',
+  }
+
+  // Resolve patient identifier to UUID when necessary (patient_code or other token may be present)
+  let patientUuid = input.patientId
+  if (!isUuid(patientUuid)) {
+    try {
+      // First, try to lookup by patient_code
+      const byCodeParams = new URLSearchParams({
+        select: 'id',
+        patient_code: `eq.${input.patientId}`,
+        limit: '1',
+      })
+      const byCodeResp = await fetch(`${restApiBase}patients?${byCodeParams.toString()}`, {
+        headers,
+      })
+      const byCodePayload = await readJson<any>(byCodeResp)
+      if (byCodeResp.ok && Array.isArray(byCodePayload) && byCodePayload[0]?.id) {
+        patientUuid = byCodePayload[0].id
+      } else {
+        // Fallback: try to lookup directly by id (in case the input was an id-like token)
+        const byIdParams = new URLSearchParams({
+          select: 'id',
+          id: `eq.${input.patientId}`,
+          limit: '1',
+        })
+        const byIdResp = await fetch(`${restApiBase}patients?${byIdParams.toString()}`, {
+          headers,
+        })
+        const byIdPayload = await readJson<any>(byIdResp)
+        if (byIdResp.ok && Array.isArray(byIdPayload) && byIdPayload[0]?.id) {
+          patientUuid = byIdPayload[0].id
+        } else {
+          throw new Error('Unable to resolve patient identifier to UUID')
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to resolve patient identifier to UUID'
+      throw new Error(message)
+    }
+  }
+
+  const payload = {
+    patient_id: patientUuid,
+    provider_id: input.providerId || null,
+    facility_id: input.facilityId || null,
+    category: input.category || 'Clinical',
+    record_type: input.recordType || 'Visit',
+    title: input.title,
+    description: input.description || null,
+    status: input.status || 'completed',
+    record_date: input.recordDate || new Date().toISOString().slice(0, 10),
+  }
+
+  const url = `${restApiBase}medical_records`
+  console.info('[FilCare] Creating medical record via REST POST', {
+    url,
+    payload,
+    hasAnonKey: Boolean(anonKey),
+  })
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  })
+
+  const responseText = await response.text()
+  let data: any = responseText
+
+  try {
+    data = responseText ? JSON.parse(responseText) : responseText
+  } catch {
+    // Keep the raw text when the response is not JSON.
+  }
+
+  console.info('[FilCare] Medical record POST response', {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    body: data,
+  })
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Unauthorized creating medical record. Confirm VITE_SUPABASE_ANON_KEY is current and the hosted database grants anon insert on medical_records.')
+    }
+    throw new Error(data?.message || data?.hint || 'Failed to create medical record')
+  }
+
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row || !row.id) throw new Error('Medical record API returned no created row')
+  return row
+}
+
 export async function fetchPatientQueueStatus(queueEntryId: string): Promise<{
   queue: PatientQueueEntry
   facility: QueueFacility

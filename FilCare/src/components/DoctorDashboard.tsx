@@ -37,6 +37,7 @@ import {
   fetchProviderQueueDashboard,
   fetchQueueEntries,
   deleteQueueEntry,
+  createMedicalRecord,
   updateQueueEntryVitals,
   loadAuthSession,
   type ProviderQueueDashboardRow,
@@ -944,7 +945,33 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
     setActionError(null);
     try {
-      await deleteQueueEntry(patient.queueEntryId);
+        // Attempt to create a medical record using available similar data before deleting the queue entry.
+        try {
+          await createMedicalRecord({
+            patientId: patient.id,
+            facilityId: patient.facilityId || null,
+            providerId: null,
+            title: `Visit - Queue #${patient.queueNumber}`,
+            description: patient.chiefComplaint || patient.symptoms.join(', '),
+            category: 'Clinical',
+            recordType: 'Visit',
+            status: 'completed',
+            recordDate: new Date().toISOString().slice(0, 10),
+          })
+        } catch (recordError) {
+          const msg = recordError instanceof Error ? recordError.message : String(recordError)
+          // If the failure is due to row-level security (RLS) or permission, don't block deletion.
+          if (msg.toLowerCase().includes('row-level') || msg.toLowerCase().includes('row level') || msg.toLowerCase().includes('violates')) {
+            setActionError('Medical record could not be saved due to permission policy; queue entry will still be removed.')
+          } else {
+            // Non-RLS errors may indicate real problems — surface and abort.
+            setActionError(msg || 'Failed to save medical record before completion.')
+            closeModal();
+            return;
+          }
+        }
+
+        await deleteQueueEntry(patient.queueEntryId);
       setRemovingPatientIds((prev) => [...prev, patient.id]);
       window.setTimeout(() => {
         setPatients((prev) => prev.filter((p) => p.queueEntryId !== queueEntryId));
