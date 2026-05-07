@@ -6,8 +6,7 @@ import { GabayChatbot } from './components/GabayChatbot.tsx'
 import { AuthModal } from './components/AuthModal.tsx'
 import { clearAuthSession, isAuthSessionExpired, loadAuthSession, saveAuthSession, type AuthRole, type AuthSession } from './lib/supabaseAuth.ts'
 import { useEffect, useState, type ReactNode } from 'react'
-import { DoctorDashboard } from './components/DoctorDashboard.tsx'
-import PatientDetails from './components/Provider-patientDetails.tsx'
+import { ProviderDashboard } from './components/ProviderDashboard.tsx'
 
 function AuthenticatedRoute({
   session,
@@ -38,14 +37,23 @@ function AuthenticatedRoute({
 function AppShell() {
   const navigate = useNavigate()
   const [session, setSession] = useState<AuthSession | null>(null)
+  const [patientData, setPatientData] = useState<any>(null)
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const [authRole, setAuthRole] = useState<AuthRole>('patient')
   const [redirectTo, setRedirectTo] = useState('/')
 
   useEffect(() => {
     const storedSession = loadAuthSession()
+    const storedPatientData = window.localStorage.getItem('filcare-patient-data')
 
     if (!storedSession) {
+      if (storedPatientData) {
+        try {
+          setPatientData(JSON.parse(storedPatientData))
+        } catch {
+          window.localStorage.removeItem('filcare-patient-data')
+        }
+      }
       return
     }
 
@@ -55,7 +63,23 @@ function AppShell() {
     }
 
     setSession(storedSession)
+
+    if (storedPatientData) {
+      try {
+        setPatientData(JSON.parse(storedPatientData))
+      } catch {
+        window.localStorage.removeItem('filcare-patient-data')
+      }
+    }
   }, [])
+
+  useEffect(() => {
+    if (patientData) {
+      window.localStorage.setItem('filcare-patient-data', JSON.stringify(patientData))
+    } else {
+      window.localStorage.removeItem('filcare-patient-data')
+    }
+  }, [patientData])
 
   const handleRequireAuth = (role: AuthRole, nextPath: string) => {
     setAuthRole(role)
@@ -64,11 +88,19 @@ function AppShell() {
   }
 
   const handleAuthSuccess = (session: AuthSession) => {
-  saveAuthSession(session);
-  setSession(session);
-  setAuthModalOpen(false);
-  navigate(redirectTo);
-};
+    saveAuthSession(session);
+    setSession(session);
+    setAuthModalOpen(false);
+    navigate(redirectTo);
+  };
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setSession(null);
+    setPatientData(null);
+    setAuthModalOpen(true);
+    navigate('/');
+  };
 
   const landingPage = (
     <LandingPage
@@ -90,15 +122,11 @@ function AppShell() {
                 requiredRole="patient"
                 onRequireAuth={handleRequireAuth}
               >
-                <PatientPortal
-                  patientData={undefined}
-                  setPatientData={function (): void {
-                    throw new Error('Function not implemented.')
-                  }}
-                  onBack={function (): void {
-                    navigate('/')
-                  }}
-                />
+                  <PatientPortal
+                    patientData={patientData}
+                    setPatientData={setPatientData}
+                    onBack={handleLogout}
+                  />
               </AuthenticatedRoute>
             }
           />
@@ -110,11 +138,7 @@ function AppShell() {
                 requiredRole="provider"
                 onRequireAuth={handleRequireAuth}
               >
-                <DoctorDashboard
-                  onBack={function (): void {
-                    navigate('/')
-                  }}
-                />
+                <ProviderDashboard onBack={handleLogout} />
               </AuthenticatedRoute>
             }
           />

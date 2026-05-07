@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Upload, CheckCircle } from 'lucide-react';
+import { loadAuthSession } from '../lib/supabaseAuth';
 
 interface PreRegistrationProps {
   onComplete: (data: any) => void;
@@ -32,6 +33,17 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState('');
 
+  useEffect(() => {
+    // Autofill email from logged-in session
+    const session = loadAuthSession();
+    if (session?.email && !formData.email) {
+      setFormData((prev) => ({
+        ...prev,
+        email: session.email,
+      }));
+    }
+  }, []);
+
   const getAge = (dateOfBirth: string) => {
     if (!dateOfBirth) return null;
     const dob = new Date(dateOfBirth);
@@ -51,9 +63,16 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setSubmitError('');
     const { name, value } = e.target;
+    let finalValue = value;
+    
+    // Limit phone numbers to 11 digits
+    if (name === 'phone' || name === 'emergencyPhone' || name === 'guardianPhone') {
+      finalValue = value.replace(/\D/g, '').slice(0, 11);
+    }
+    
     setFormData((prev) => ({
       ...prev,
-      [name]: value,
+      [name]: finalValue,
       insuranceProvider: name === 'hasInsurance' && value === 'no' ? '' : prev.insuranceProvider,
     }));
   };
@@ -65,21 +84,30 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
+
+    const patientId = crypto.randomUUID();
+    const patientCode = `PT-${crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+    const qrToken = crypto.randomUUID();
+
     try {
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_REST_API}patients`, {
+      const patientResponse = await fetch(`${import.meta.env.VITE_SUPABASE_REST_API}patients`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
           'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Prefer': 'return=minimal',
         },
         body: JSON.stringify({
+          id: patientId,
+          patient_code: patientCode,
+          qr_token: qrToken,
           first_name: formData.firstName,
           last_name: formData.lastName,
           date_of_birth: formData.dateOfBirth,
           gender: formData.gender,
           phone: formData.phone,
-          email: formData.email || null,
           address: formData.address,
           city: formData.city,
           zip_code: formData.zipCode,
@@ -92,55 +120,35 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
+      if (!patientResponse.ok) {
+        const errorText = await patientResponse.text();
+        let errorData: unknown = errorText;
+
+        try {
+          errorData = errorText ? JSON.parse(errorText) : errorText;
+        } catch {
+          // Keep the raw text when the response is not JSON.
+        }
+
         console.error('Error inserting patient:', errorData);
-        alert('Failed to register patient. Please try again.');
+        setSubmitError('Failed to register patient. Please try again.');
         return;
       }
 
-      const data = await response.json();
-      const patientId = data[0].patient_code; 
-      const patientData = {
+      const completionData = {
         ...formData,
         id: patientId,
         name: `${formData.firstName} ${formData.lastName}`,
+        patientCode,
+        qrToken,
         registeredAt: new Date().toISOString(),
         medicalRecords: uploadedFiles,
       };
-      onComplete(patientData);
+      onComplete(completionData);
     } catch (err) {
       console.error('Unexpected error:', err);
-      alert('An unexpected error occurred. Please try again.');
+      setSubmitError('An unexpected error occurred. Please try again.');
     }
-    if (needsGuardianInfo) {
-      const guardianMissing =
-        !formData.guardianName.trim() ||
-        !formData.guardianRelationship.trim() ||
-        !formData.guardianPhone.trim();
-
-      if (guardianMissing) {
-        setSubmitError('Guardian/Parent details are required for minors and senior patients.');
-        return;
-      }
-    }
-
-    if (formData.hasInsurance === 'yes' && !formData.insuranceProvider.trim()) {
-      setSubmitError('Please provide your insurance provider.');
-      return;
-    }
-
-    const patientId = 'PT' + Date.now().toString().slice(-8);
-    const patientData = {
-      ...formData,
-      id: patientId,
-      name: `${formData.firstName} ${formData.lastName}`,
-      age,
-      needsGuardianInfo,
-      registeredAt: new Date().toISOString(),
-      medicalRecords: uploadedFiles,
-    };
-    onComplete(patientData);
   };
 
   return (
@@ -244,7 +252,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Phone Number *
+                Phone Number * <span className="text-gray-500 text-xs">(max 11 digits)</span>
               </label>
               <input
                 type="tel"
@@ -253,12 +261,13 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
                 value={formData.phone}
                 onChange={handleChange}
                 placeholder="(555) 123-4567"
+                maxLength={15}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email
+                Email {formData.email && <span className="text-gray-500 text-xs">(autofilled)</span>}
               </label>
               <input
                 type="email"
@@ -425,7 +434,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Emergency Contact Phone *
+                Emergency Contact Phone * <span className="text-gray-500 text-xs">(max 11 digits)</span>
               </label>
               <input
                 type="tel"
@@ -434,6 +443,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
                 value={formData.emergencyPhone}
                 onChange={handleChange}
                 placeholder="(555) 123-4567"
+                maxLength={11}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -473,7 +483,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Guardian / Parent Phone *
+                  Guardian / Parent Phone * <span className="text-gray-500 text-xs">(max 11 digits)</span>
                 </label>
                 <input
                   type="tel"
@@ -482,6 +492,7 @@ export function PreRegistration({ onComplete }: PreRegistrationProps) {
                   value={formData.guardianPhone}
                   onChange={handleChange}
                   placeholder="(555) 123-4567"
+                  maxLength={11}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

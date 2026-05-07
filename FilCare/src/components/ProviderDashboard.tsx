@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import {
   Activity,
   Users,
@@ -14,10 +13,13 @@ import {
   Phone,
   QrCode,
   Stethoscope,
+  LogOut,
 } from "lucide-react";
+import { FilCareLogo } from "./FilCareLogo";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
+import { fetchProviderQueueDashboard, type ProviderQueueDashboardRow } from "../lib/supabaseAuth";
 
 type Priority = "P1" | "P2" | "P3";
 
@@ -545,12 +547,88 @@ function PatientCard({
   );
 }
 
-export function ProviderDashboard() {
-  const navigate = useNavigate();
-  const [patients, setPatients] = useState<Patient[]>(MOCK_PATIENTS);
+interface ProviderDashboardProps {
+  onBack?: () => void;
+}
+
+export function ProviderDashboard({ onBack }: ProviderDashboardProps) {
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [filter, setFilter] = useState<"all" | Priority>("all");
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const mapStatus = (status: string): Patient['status'] => {
+      if (status === 'completed') return 'completed';
+      if (status === 'called' || status === 'in-progress' || status === 'in_consultation') return 'in-progress';
+      return 'waiting';
+    };
+
+    const formatArrivalTime = (checkInAt: string | null) => {
+      if (!checkInAt) return 'N/A';
+      const date = new Date(checkInAt);
+      if (Number.isNaN(date.getTime())) return 'N/A';
+      return date.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const parseSymptoms = (symptomsText: string | null) => {
+      if (!symptomsText) return ['No symptoms recorded'];
+      return symptomsText
+        .split(/[,\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 6);
+    };
+
+    const toPatient = (row: ProviderQueueDashboardRow): Patient => {
+      const waitTime = row.status === 'completed'
+        ? 'Completed'
+        : row.estimated_wait_minutes === null
+          ? 'Pending'
+          : row.estimated_wait_minutes <= 0
+            ? 'Now'
+            : `~${row.estimated_wait_minutes} min`;
+
+      return {
+        id: row.patient_code || row.id,
+        name: row.patient_name || 'Unknown Patient',
+        age: 0,
+        gender: row.gender || 'Unknown',
+        priority: row.priority,
+        symptoms: parseSymptoms(row.symptoms_text),
+        queueNumber: row.queue_number,
+        waitTime,
+        location: row.facility_name || 'Facility not set',
+        phone: 'N/A',
+        dob: 'N/A',
+        bloodType: row.blood_type || 'N/A',
+        allergies: [],
+        currentVitals: { bp: 'N/A', hr: 'N/A', temp: 'N/A', spo2: 'N/A' },
+        medicalHistory: [],
+        chiefComplaint: row.recommendation || row.symptoms_text || 'No details available',
+        arrivalTime: formatArrivalTime(row.check_in_at),
+        status: mapStatus(row.status),
+      };
+    };
+
+    const loadQueue = async () => {
+      setIsLoading(true);
+      setLoadError(null);
+      try {
+        const rows = await fetchProviderQueueDashboard();
+        setPatients(rows.map(toPatient));
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : 'Failed to load provider queue dashboard');
+        setPatients(MOCK_PATIENTS);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void loadQueue();
+  }, []);
 
   const handleAction = (type: ModalType, patient: Patient) => {
     if (type === "view-records") {
@@ -611,18 +689,40 @@ export function ProviderDashboard() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
-      {/* Page Title */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-blue-900">Provider Dashboard</h2>
-          <p className="text-sm text-muted-foreground mt-1">Live queue — {new Date().toLocaleDateString("en-PH", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+    <div className="size-full flex flex-col bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <FilCareLogo size="sm" showText={false} />
+            <div>
+              <h1 className="text-base sm:text-lg font-bold text-gray-900">Provider Dashboard</h1>
+              <p className="text-xs text-gray-500">Live queue management</p>
+            </div>
+          </div>
+          <button
+            onClick={onBack}
+            className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-xl transition-colors"
+            title="Logout"
+          >
+            <LogOut className="w-5 h-5 text-gray-700" />
+          </button>
         </div>
-        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-xs font-semibold text-emerald-700">Live</span>
-        </div>
-      </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+          {/* Page Title */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">Live queue — {new Date().toLocaleDateString("en-PH", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+            </div>
+            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-semibold text-emerald-700">Live</span>
+            </div>
+          </div>
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -663,7 +763,25 @@ export function ProviderDashboard() {
 
       {/* Patient List */}
       <div className="grid md:grid-cols-2 gap-4">
-        {filtered.map((patient) => (
+        {isLoading && (
+          <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-muted-foreground">
+            Loading provider queue...
+          </div>
+        )}
+
+        {!isLoading && loadError && (
+          <div className="md:col-span-2 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+            Unable to load live queue. Showing fallback data. Details: {loadError}
+          </div>
+        )}
+
+        {!isLoading && filtered.length === 0 && (
+          <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-muted-foreground">
+            No queue entries found for today.
+          </div>
+        )}
+
+        {!isLoading && filtered.map((patient) => (
           <PatientCard key={patient.id} patient={patient} onAction={handleAction} />
         ))}
       </div>
@@ -686,6 +804,8 @@ export function ProviderDashboard() {
           <MarkCompleteModal patient={selectedPatient} onClose={closeModal} onConfirm={handleMarkComplete} />
         )}
       </Dialog>
+        </div>
+      </div>
     </div>
   );
 }
