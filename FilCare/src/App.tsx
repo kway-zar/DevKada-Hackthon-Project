@@ -6,8 +6,6 @@ import { GabayChatbot } from './components/GabayChatbot.tsx'
 import { AuthModal } from './components/AuthModal.tsx'
 import { clearAuthSession, isAuthSessionExpired, loadAuthSession, saveAuthSession, type AuthRole, type AuthSession } from './lib/supabaseAuth.ts'
 import { useEffect, useState, type ReactNode } from 'react'
-import { DoctorDashboard } from './components/DoctorDashboard.tsx'
-import { Provider } from '@radix-ui/react-tooltip'
 import { ProviderDashboard } from './components/ProviderDashboard.tsx'
 
 function AuthenticatedRoute({
@@ -116,7 +114,7 @@ function AppShell() {
                 requiredRole="provider"
                 onRequireAuth={handleRequireAuth}
               >
-                <ProviderDashboard/>
+                <ProviderDashboard onBack={handleLogout} />
               </AuthenticatedRoute>
             }
           />

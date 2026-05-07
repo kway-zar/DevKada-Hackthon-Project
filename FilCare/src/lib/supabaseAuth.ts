@@ -10,6 +10,26 @@ export interface AuthSession {
   fullName: string
 }
 
+export interface ProviderQueueDashboardRow {
+  id: string
+  queue_date: string
+  queue_number: number
+  priority: 'P1' | 'P2' | 'P3'
+  priority_label: string | null
+  status: string
+  check_in_at: string | null
+  called_at: string | null
+  completed_at: string | null
+  estimated_wait_minutes: number | null
+  patient_name: string
+  patient_code: string | null
+  gender: string | null
+  blood_type: string | null
+  facility_name: string | null
+  symptoms_text: string | null
+  recommendation: string | null
+}
+
 
 
 const DEFAULT_REST_API = 'https://mhahfguiqnaczorujmhd.supabase.co/rest/v1/'
@@ -41,6 +61,12 @@ function getAuthHeaders(accessToken?: string) {
   }
 
   return headers
+}
+
+function isLikelyJwt(token?: string) {
+  if (!token) return false
+  const trimmed = token.trim()
+  return trimmed.split('.').length === 3
 }
 
 
@@ -95,7 +121,8 @@ export async function signInWithPassword(email: string, password: string): Promi
   }
 
   return {
-    accessToken: "YOUR_CUSTOM_GENERATED_JWT", 
+    // Until real Supabase Auth JWT is implemented, use anon key to avoid invalid token 401s.
+    accessToken: getAnonKey(),
     refreshToken: "",
     expiresAt: Date.now() + 3600000,
     userId: account.id,
@@ -144,7 +171,8 @@ export async function signUpWithPassword(input: {
   });
 
   return {
-    accessToken: "CUSTOM_JWT_TOKEN",
+    // Until real Supabase Auth JWT is implemented, use anon key to avoid invalid token 401s.
+    accessToken: getAnonKey(),
     refreshToken: "",
     expiresAt: Date.now() + 3600000,
     userId: newAccount.id,
@@ -155,4 +183,28 @@ export async function signUpWithPassword(input: {
 }
 export function isAuthSessionExpired(session: AuthSession) {
   return session.expiresAt !== null && Date.now() >= session.expiresAt
+}
+
+export async function fetchProviderQueueDashboard(queueDate?: string): Promise<ProviderQueueDashboardRow[]> {
+  const restBase = getRestApiBase()
+  const session = loadAuthSession()
+  const dateValue = queueDate || new Date().toISOString().slice(0, 10)
+  const token = isLikelyJwt(session?.accessToken) ? session?.accessToken : undefined
+
+  const params = new URLSearchParams({
+    select: '*',
+    queue_date: `eq.${dateValue}`,
+    order: 'priority.asc,queue_number.asc',
+  })
+
+  const response = await fetch(`${restBase}/provider_queue_dashboard?${params.toString()}`, {
+    headers: getAuthHeaders(token),
+  })
+
+  const payload = await readJson<any>(response)
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.hint || 'Failed to load provider queue dashboard')
+  }
+
+  return Array.isArray(payload) ? (payload as ProviderQueueDashboardRow[]) : []
 }
