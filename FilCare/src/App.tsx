@@ -37,14 +37,23 @@ function AuthenticatedRoute({
 function AppShell() {
   const navigate = useNavigate()
   const [session, setSession] = useState<AuthSession | null>(null)
+  const [patientData, setPatientData] = useState<any>(null)
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const [authRole, setAuthRole] = useState<AuthRole>('patient')
   const [redirectTo, setRedirectTo] = useState('/')
 
   useEffect(() => {
     const storedSession = loadAuthSession()
+    const storedPatientData = window.localStorage.getItem('filcare-patient-data')
 
     if (!storedSession) {
+      if (storedPatientData) {
+        try {
+          setPatientData(JSON.parse(storedPatientData))
+        } catch {
+          window.localStorage.removeItem('filcare-patient-data')
+        }
+      }
       return
     }
 
@@ -54,7 +63,23 @@ function AppShell() {
     }
 
     setSession(storedSession)
+
+    if (storedPatientData) {
+      try {
+        setPatientData(JSON.parse(storedPatientData))
+      } catch {
+        window.localStorage.removeItem('filcare-patient-data')
+      }
+    }
   }, [])
+
+  useEffect(() => {
+    if (patientData) {
+      window.localStorage.setItem('filcare-patient-data', JSON.stringify(patientData))
+    } else {
+      window.localStorage.removeItem('filcare-patient-data')
+    }
+  }, [patientData])
 
   const handleRequireAuth = (role: AuthRole, nextPath: string) => {
     setAuthRole(role)
@@ -72,6 +97,7 @@ function AppShell() {
   const handleLogout = () => {
     clearAuthSession();
     setSession(null);
+    setPatientData(null);
     setAuthModalOpen(true);
     navigate('/');
   };
@@ -96,13 +122,11 @@ function AppShell() {
                 requiredRole="patient"
                 onRequireAuth={handleRequireAuth}
               >
-                <PatientPortal
-                  patientData={undefined}
-                  setPatientData={function (): void {
-                    throw new Error('Function not implemented.')
-                  }}
-                  onBack={handleLogout}
-                />
+                  <PatientPortal
+                    patientData={patientData}
+                    setPatientData={setPatientData}
+                    onBack={handleLogout}
+                  />
               </AuthenticatedRoute>
             }
           />
