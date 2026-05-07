@@ -33,6 +33,7 @@ export interface ProviderQueueDashboardRow {
 export interface QueueEntryDashboardRow {
   id: string
   facility_id: string
+  patient_id?: string | null
   queue_date: string
   queue_number: number
   priority: 'P1' | 'P2' | 'P3'
@@ -43,6 +44,7 @@ export interface QueueEntryDashboardRow {
   completed_at: string | null
   estimated_wait_minutes: number | null
   patients?: {
+    id?: string | null
     patient_code?: string | null
     full_name?: string | null
     gender?: string | null
@@ -69,6 +71,13 @@ export interface ProviderFacility {
   name: string
 }
 
+export interface DoctorIdentity {
+  fullName: string
+  email: string
+  role: AuthRole
+  facilityName: string | null
+}
+
 export interface DoctorQueueAccess {
   scope: 'all' | 'facility'
   facilityId: string | null
@@ -89,6 +98,24 @@ export interface QueueFacility {
   phone?: string | null
   emergency_hotline?: string | null
   rating?: number | null
+}
+
+export interface PatientMedicalRecordRow {
+  id: string
+  patient_id: string
+  facility_id: string | null
+  category: string
+  record_type: string
+  title: string
+  description: string | null
+  status: string
+  record_date: string
+  file_name: string | null
+  file_url: string | null
+  mime_type: string | null
+  created_at: string
+  facility_name?: string | null
+  provider_name?: string | null
 }
 
 type SelectableFacility = {
@@ -236,6 +263,21 @@ export async function signInWithPassword(email: string, password: string): Promi
     throw new Error('Invalid credentials.');
   }
 
+  let profileFullName: string | null = null;
+  try {
+    const profileResponse = await fetch(
+      `${restBase}/profiles?select=full_name&email=eq.${encodeURIComponent(email.trim())}&limit=1`,
+      { headers: getAuthHeaders() }
+    );
+    const profilePayload = await readJson<any>(profileResponse);
+    if (profileResponse.ok) {
+      const profile = Array.isArray(profilePayload) ? profilePayload[0] : profilePayload;
+      profileFullName = profile?.full_name || null;
+    }
+  } catch {
+    profileFullName = null;
+  }
+
   return {
     // Until real Supabase Auth JWT is implemented, use anon key to avoid invalid token 401s.
     accessToken: getAnonKey(),
@@ -244,7 +286,7 @@ export async function signInWithPassword(email: string, password: string): Promi
     userId: account.id,
     email: account.email,
     role: (account.account_type || 'patient') as AuthRole, // Assigned automatically by the DB trigger
-    fullName: account.patients?.full_name || "Staff Member"
+    fullName: `Dr. ${profileFullName || account.patients?.full_name || account.email.split('@')[0] || 'Doctor'}`
   };
 }
 
@@ -389,6 +431,130 @@ export async function fetchProviderFacility(): Promise<ProviderFacility | null> 
   }
 }
 
+export async function fetchDoctorIdentity(): Promise<DoctorIdentity | null> {
+  const restBase = getRestApiBase()
+  const session = loadAuthSession()
+  if (!session?.userId) return null
+  const doctorDisplayName = `Dr. ${session.email.split('@')[0] || 'Doctor'}`
+
+  const profileParams = new URLSearchParams({
+    select: 'full_name,role,email',
+    user_id: `eq.${session.userId}`,
+    limit: '1',
+  })
+  const profileResponse = await fetch(`${restBase}/profiles?${profileParams.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const profilePayload = await readJson<any>(profileResponse)
+  if (profileResponse.ok) {
+    const profile = Array.isArray(profilePayload) ? profilePayload[0] : profilePayload
+    if (profile?.full_name) {
+      const providerFacility = await fetchProviderFacility()
+      return {
+        fullName: doctorDisplayName,
+        email: profile.email || session.email,
+        role: (profile.role || session.role) as AuthRole,
+        facilityName: providerFacility?.name || null,
+      }
+    }
+  }
+
+  const emailProfileParams = new URLSearchParams({
+    select: 'full_name,role,email',
+    email: `eq.${session.email}`,
+    limit: '1',
+  })
+  const emailProfileResponse = await fetch(`${restBase}/profiles?${emailProfileParams.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const emailProfilePayload = await readJson<any>(emailProfileResponse)
+  if (emailProfileResponse.ok) {
+    const profile = Array.isArray(emailProfilePayload) ? emailProfilePayload[0] : emailProfilePayload
+    if (profile?.full_name) {
+      const providerFacility = await fetchProviderFacility()
+      return {
+        fullName: doctorDisplayName,
+        email: profile.email || session.email,
+        role: (profile.role || session.role) as AuthRole,
+        facilityName: providerFacility?.name || null,
+      }
+    }
+  }
+
+  const accountParams = new URLSearchParams({
+    select: 'email,account_type,providers!accounts_provider_id_fkey(facility_id,facilities(name))',
+    id: `eq.${session.userId}`,
+    limit: '1',
+  })
+  const accountResponse = await fetch(`${restBase}/accounts?${accountParams.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const accountPayload = await readJson<any>(accountResponse)
+  if (accountResponse.ok) {
+    const account = Array.isArray(accountPayload) ? accountPayload[0] : accountPayload
+    const providerFacilityName = account?.providers?.facilities?.name || null
+    if (account?.email) {
+      return {
+        fullName: doctorDisplayName,
+        email: account.email,
+        role: (account.account_type || session.role) as AuthRole,
+        facilityName: providerFacilityName,
+      }
+    }
+  }
+
+  return {
+    fullName: `Dr. ${session.email.split('@')[0] || 'Doctor'}`,
+    email: session.email,
+    role: session.role,
+    facilityName: null,
+  }
+}
+
+export async function fetchPatientMedicalRecords(input: {
+  patientIdOrCode: string
+  facilityId?: string | null
+}): Promise<PatientMedicalRecordRow[]> {
+  const restBase = getRestApiBase()
+  const trimmed = input.patientIdOrCode.trim()
+  if (!trimmed) return []
+
+  let patientId = trimmed
+  if (!isUuid(trimmed)) {
+    const patientLookup = await fetchPatientByQrValue(trimmed)
+    if (!patientLookup) return []
+    patientId = patientLookup.id
+  }
+
+  const params = new URLSearchParams({
+    select:
+      'id,patient_id,facility_id,provider_id,appointment_id,category,record_type,title,description,status,record_date,file_name,file_url,mime_type,created_at,facilities(name)',
+    patient_id: `eq.${patientId}`,
+    order: 'record_date.desc,created_at.desc',
+    limit: '20',
+  })
+
+  if (input.facilityId) {
+    params.set('facility_id', `eq.${input.facilityId}`)
+  }
+
+  const response = await fetch(`${restBase}/medical_records?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const payload = await readJson<any>(response)
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.hint || 'Failed to load medical records')
+  }
+
+  return Array.isArray(payload)
+    ? payload.map((item) => ({
+        ...item,
+        facility_name: item.facilities?.name || null,
+        provider_name: null,
+      })) as PatientMedicalRecordRow[]
+    : []
+}
+
 export async function fetchQueueEntries(input: {
   queueDate: string
   facilityId?: string
@@ -396,7 +562,7 @@ export async function fetchQueueEntries(input: {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
     select:
-      'id,facility_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,patients(patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies,bp,hr,temp,spo2),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
+      'id,facility_id,patient_id,queue_date,queue_number,priority,priority_label,status,check_in_at,called_at,completed_at,estimated_wait_minutes,patients(id,patient_code,full_name,gender,blood_type,phone,date_of_birth,allergies,bp,hr,temp,spo2),facilities(name),symptom_triage_assessments(symptoms_text,recommendation)',
     queue_date: `eq.${input.queueDate}`,
     order: 'priority.asc,queue_number.asc',
   })
@@ -500,7 +666,7 @@ export async function updatePatientVitals(input: {
 export async function fetchRegisteredPatients(): Promise<RegisteredPatientRow[]> {
   const restBase = getRestApiBase()
   const params = new URLSearchParams({
-    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,bp,hr,temp,spo2,created_at',
+    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
     order: 'created_at.desc',
     limit: '50',
   })
@@ -522,9 +688,14 @@ export async function fetchPatientByQrValue(value: string): Promise<RegisteredPa
   if (!trimmed) return null
 
   const restBase = getRestApiBase()
+  const filters = [`patient_code.eq.${trimmed}`]
+  if (isUuid(trimmed)) {
+    filters.unshift(`qr_token.eq.${trimmed}`)
+    filters.push(`id.eq.${trimmed}`)
+  }
   const params = new URLSearchParams({
-    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,bp,hr,temp,spo2,created_at',
-    or: `(qr_token.eq.${trimmed},patient_code.eq.${trimmed},id.eq.${trimmed})`,
+    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
+    or: `(${filters.join(',')})`,
     limit: '1',
   })
 
@@ -535,6 +706,29 @@ export async function fetchPatientByQrValue(value: string): Promise<RegisteredPa
   const payload = await readJson<any>(response)
   if (!response.ok) {
     throw new Error(payload?.message || payload?.hint || 'Failed to load patient QR record')
+  }
+
+  return Array.isArray(payload) && payload[0] ? (payload[0] as RegisteredPatientRow) : null
+}
+
+export async function fetchPatientById(id: string): Promise<RegisteredPatientRow | null> {
+  const trimmed = id.trim()
+  if (!trimmed || !isUuid(trimmed)) return null
+
+  const restBase = getRestApiBase()
+  const params = new URLSearchParams({
+    select: 'id,patient_code,first_name,last_name,full_name,date_of_birth,gender,phone,blood_type,allergies,medications,emergency_contact_name,emergency_contact_phone,created_at',
+    id: `eq.${trimmed}`,
+    limit: '1',
+  })
+
+  const response = await fetch(`${restBase}/patients?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+
+  const payload = await readJson<any>(response)
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.hint || 'Failed to load patient record')
   }
 
   return Array.isArray(payload) && payload[0] ? (payload[0] as RegisteredPatientRow) : null
