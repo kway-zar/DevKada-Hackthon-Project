@@ -38,9 +38,7 @@ export function AuthModal({ open, onOpenChange, defaultUserType, onAuthSuccess }
 
     try {
       const session = await signInWithPassword(email, password);
-      // If this modal was opened specifically for providers, ensure the
-      // authenticated account is actually a provider. If not, show an error
-      // and do not call onAuthSuccess (so nothing is stored or used to proceed).
+ 
        if (defaultUserType === 'provider' && session.role !== 'provider') {
         setError('This account is not a provider account. Please use a provider account to continue.');
         return;
