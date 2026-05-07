@@ -37,6 +37,7 @@ import {
   fetchProviderQueueDashboard,
   fetchQueueEntries,
   deleteQueueEntry,
+  createMedicalRecord,
   updateQueueEntryVitals,
   loadAuthSession,
   type ProviderQueueDashboardRow,
@@ -118,6 +119,27 @@ const PRIORITY_CONFIG: Record<
 };
 
 type ModalType = 'see-patient' | 'view-records' | 'mark-complete' | 'edit-vitals' | null;
+
+const COMPLETION_BONUS_PREFIX = 'filcare-doctor-completion-bonus';
+
+function getCompletionBonusKey(queueDate: string) {
+  return `${COMPLETION_BONUS_PREFIX}:${queueDate}`;
+}
+
+function readCompletionBonus(queueDate: string): Record<string, number> {
+  try {
+    const raw = window.localStorage.getItem(getCompletionBonusKey(queueDate));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCompletionBonus(queueDate: string, value: Record<string, number>) {
+  window.localStorage.setItem(getCompletionBonusKey(queueDate), JSON.stringify(value));
+}
 
 function VitalChip({ label, value }: { label: string; value: string }) {
   return (
@@ -722,11 +744,16 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
   const [queueDate, setQueueDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [doctorAccess, setDoctorAccess] = useState<DoctorQueueAccess | null>(null);
   const [facilityFilter, setFacilityFilter] = useState('all');
+  const [completionBonusByFacility, setCompletionBonusByFacility] = useState<Record<string, number>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scannerIntervalRef = useRef<number | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    setCompletionBonusByFacility(readCompletionBonus(queueDate));
+  }, [queueDate]);
 
   const fetchPatients = useCallback(async () => {
     setLoadingPatients(true);
@@ -944,7 +971,43 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
 
     setActionError(null);
     try {
+        // Attempt to create a medical record using available similar data before deleting the queue entry.
+        try {
+          await createMedicalRecord({
+            patientId: patient.id,
+            facilityId: patient.facilityId || null,
+            providerId: null,
+            title: `Visit - Queue #${patient.queueNumber}`,
+            description: patient.chiefComplaint || patient.symptoms.join(', '),
+            category: 'Clinical',
+            recordType: 'Visit',
+            status: 'completed',
+            recordDate: new Date().toISOString().slice(0, 10),
+          })
+        } catch (recordError) {
+          const msg = recordError instanceof Error ? recordError.message : String(recordError)
+          // If the failure is due to row-level security (RLS) or permission, don't block deletion.
+          if (msg.toLowerCase().includes('row-level') || msg.toLowerCase().includes('row level') || msg.toLowerCase().includes('violates')) {
+            setActionError('Medical record could not be saved due to permission policy; queue entry will still be removed.')
+          } else {
+            // Non-RLS errors may indicate real problems — surface and abort.
+            setActionError(msg || 'Failed to save medical record before completion.')
+            closeModal();
+            return;
+          }
+        }
+
+        await deleteQueueEntry(patient.queueEntryId);
       await deleteQueueEntry(patient.queueEntryId);
+      const bonusKey = patient.facilityId || facilityFilter || 'all';
+      setCompletionBonusByFacility((prev) => {
+        const next = {
+          ...prev,
+          [bonusKey]: (prev[bonusKey] || 0) + 1,
+        };
+        writeCompletionBonus(queueDate, next);
+        return next;
+      });
       setRemovingPatientIds((prev) => [...prev, patient.id]);
       window.setTimeout(() => {
         setPatients((prev) => prev.filter((p) => p.queueEntryId !== queueEntryId));
@@ -1297,9 +1360,13 @@ export function DoctorDashboard({ onBack }: DoctorDashboardProps) {
     })
     .filter((p: Patient) => (activeTab === 'queue' ? p.status !== 'completed' : true));
 
-  const totalQueueEntries = patients.length;
+  const completionBonus = facilityFilter === 'all'
+    ? Object.values(completionBonusByFacility).reduce((sum, value) => sum + value, 0)
+    : completionBonusByFacility[facilityFilter] || 0;
+
   const activeQueueEntries = patients.filter((p) => p.status !== 'completed').length;
-  const completedQueueEntries = patients.filter((p) => p.status === 'completed').length;
+  const completedQueueEntries = patients.filter((p) => p.status === 'completed').length + completionBonus;
+  const totalQueueEntries = activeQueueEntries + completedQueueEntries;
   const inProgressEntries = patients.filter((p) => p.status === 'in-progress').length;
   const waitingEntries = patients.filter((p) => p.status === 'waiting').length;
   const priorityCounts = {

@@ -39,6 +39,7 @@ declare module 'lucide-react' {
   export const GripVerticalIcon: Icon
   export const Heart: Icon
   export const IdCard: Icon
+  export const Image: Icon
   export const Mail: Icon
   export const Loader2: Icon
   export const LogOut: Icon

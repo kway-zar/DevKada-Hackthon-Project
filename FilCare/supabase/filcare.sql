@@ -266,6 +266,7 @@ grant update (
 ) on public.queue_entries to anon, authenticated;
 grant select on public.appointments to authenticated;
 grant select on public.medical_records to authenticated;
+grant insert on public.medical_records to anon, authenticated;
 grant insert on public.patients to anon, authenticated;
 grant update on public.patients to anon, authenticated;
 grant insert on public.accounts to anon, authenticated;
@@ -372,6 +373,14 @@ using (exists (
   where p.id = medical_records.patient_id
     and p.user_id = auth.uid()
 ));
+
+-- Allow public inserts into medical_records (development)
+drop policy if exists "public insert medical records" on public.medical_records;
+create policy "public insert medical records"
+on public.medical_records
+for insert
+to anon, authenticated
+with check (true);
 
 create or replace view public.facility_catalog as
 select
